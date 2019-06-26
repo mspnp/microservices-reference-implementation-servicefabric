@@ -9,9 +9,9 @@ This reference implementation builds a Drone Delivery sample application that co
 - Clone the repo locally.
 
     ```
-    git clone https://github.com/mspnp/<TBD>.git
+    git clone https://github.com/mspnp/microservices-reference-implementation-servicefabric.git my-local-folder
 
-    cd <TBD>/src
+    cd my-local-folder
     ```
 - If you have multiple Azure subscriptions, make sure that the subscription that you want to use for this deployment is set as default. Connect to your Azure account and use these commands to check the subscription and set the default.
     ```
