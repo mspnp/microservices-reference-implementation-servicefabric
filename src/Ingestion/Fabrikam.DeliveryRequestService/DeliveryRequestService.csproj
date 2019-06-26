@@ -1,0 +1,38 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>netcoreapp2.2</TargetFramework>
+    <IsServiceFabricServiceProject>True</IsServiceFabricServiceProject>
+    <RuntimeIdentifier>win7-x64</RuntimeIdentifier>
+    <TargetLatestRuntimePatch>False</TargetLatestRuntimePatch>
+    <Platforms>AnyCPU;x64</Platforms>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Remove="SetCertAccess.ps1" />
+    <None Remove="Setup.bat" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="wwwroot\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.ApplicationInsights.AspNetCore" Version="2.6.0" />
+    <PackageReference Include="Microsoft.ApplicationInsights.ServiceFabric.Native" Version="2.2.2" />
+    <PackageReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Microsoft.Azure.ServiceBus" Version="3.4.0" />
+    <PackageReference Include="Microsoft.Azure.Services.AppAuthentication" Version="1.0.3" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.AzureKeyVault" Version="2.2.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="2.2.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.ApplicationInsights" Version="2.9.1" />
+    <PackageReference Include="Microsoft.ServiceFabric.AspNetCore.Kestrel" Version="3.3.638" />
+    <PackageReference Include="Microsoft.AspNetCore.Razor.Design" Version="2.2.0" PrivateAssets="All" />
+    <PackageReference Include="Microsoft.ServiceFabric.Diagnostics.Internal" Version="3.3.638" />
+    <PackageReference Include="Microsoft.ServiceFabric.Services" Version="3.3.638" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="5.0.0-beta" />
+  </ItemGroup>
+
+
+
+</Project>

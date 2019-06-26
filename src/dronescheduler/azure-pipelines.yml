@@ -1,0 +1,49 @@
+# Maven
+# Build your Java projects and run tests with Apache Maven.
+# Add steps that analyze code, save build artifacts, deploy, and more:
+# https://docs.microsoft.com/azure/devops/pipelines/languages/java
+
+trigger:
+  batch: true
+  paths:
+     include:
+     - /src/dronescheduler/
+     exclude:
+     - /
+     - /src/
+
+  branches:
+    include:
+
+    - master
+
+    - feature/*
+
+    exclude:
+
+    - feature/experimental/*
+
+pool:
+  vmImage: 'Ubuntu 16.04'
+
+steps:
+- task: Maven@3
+  inputs:
+    mavenPomFile: '$(system.defaultWorkingDirectory)/src/dronescheduler/pom.xml'
+    mavenOptions: '-Xmx3072m'
+    javaHomeOption: 'JDKVersion'
+    jdkVersionOption: '1.8'
+    jdkArchitectureOption: 'x64'
+    publishJUnitResults: true
+    testResultsFiles: '**/TEST-*.xml'
+    goals: 'package'
+
+- task: CopyFiles@2
+  inputs:
+    contents: '**/*.jar'
+    targetFolder: '$(build.artifactStagingDirectory)'
+
+- task: PublishBuildArtifacts@1
+  inputs:
+    artifactName: 'jar'
+    pathToPublish: '$(build.artifactStagingDirectory)'

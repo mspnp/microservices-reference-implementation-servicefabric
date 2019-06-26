@@ -1,0 +1,1 @@
+powershell.exe -ExecutionPolicy Bypass -File .\setup-ai-agent.ps1

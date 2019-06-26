@@ -1,0 +1,1974 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "clusterLocation": {
+            "type": "string",
+            "defaultValue": "[resourcegroup().location]",
+            "metadata": {
+                "description": "Location of the Cluster"
+            }
+        },
+        "clusterName": {
+            "type": "string",
+            "defaultValue": "<your-servicefabric-cluster-name>",
+            "metadata": {
+                "description": "Name of your cluster - Between 3 and 23 characters. Letters and numbers only"
+            }
+        },
+        "adminUserName": {
+            "type": "string",
+            "defaultValue": "<your-vm-admin-name>",
+            "metadata": {
+                "description": "Remote desktop user Id"
+            }
+        },
+        "adminPassword": {
+            "type": "securestring",
+            "defaultValue": "<your-vm-admin-password>",
+            "metadata": {
+                "description": "Remote desktop user password. Must be a strong password"
+            }
+        },
+        "vmImageSettings": {
+            "type": "object",
+            "defaultValue": {
+                "publisher": "MicrosoftWindowsServer",
+                "offer": "WindowsServer",
+                "sku": "2016-Datacenter-with-Containers",
+                "version": "latest"
+            },
+            "metadata": {
+                "description": "VM Image profile including publisher, offer, sku and version"
+            }
+        },
+        "cosmosDbSettings": {
+            "defaultValue": {
+                "accountName": "[concat('cosmos-', uniqueString(resourceGroup().id))]",
+                "defaultConsistencyLevel": "Session",
+                "maxStalenessPrefix": 100000,
+                "maxIntervalInSeconds": 300,
+                "dbName": "packageDb",
+                "throughput": 2600,
+                "containerName": "packages"
+            },
+            "type": "object"
+        },
+        "serviceBusSettings": {
+            "type": "object",
+            "defaultValue": {
+                "namespaceName": "<your-unique-servicebus-namespace>",
+                "queueName": "<delivery-requests-queue-name>"
+            }
+        },
+        "keyVaultResourceGroupName": {
+            "type": "string",
+            "defaultValue": "<your-keyvault-rg>",
+            "metadata": {
+                "description": "Resource group in which Azure keyvault is deployed"
+            }
+        },
+        "keyVaultName": {
+            "type": "string",
+            "defaultValue": "<your-keyvault-name>",
+            "metadata": {
+                "description": "Name of the Azure keyvault that contains the certificate"
+            }
+        },
+        "certificateStoreName": {
+            "type": "string",
+            "defaultValue": "My",
+            "metadata": {
+                "description": "Certificate store name, where the certificate gets stored on the VM"
+            }
+        },
+        "certificateName": {
+            "type": "string",
+            "defaultValue": "<your-servicefabric-cluster-certificate>",
+            "metadata": {
+                "description": "Name of the cluster certificate in keyvault that is used to secure Service Fabric cluster"
+            }
+        },
+        "certificateThumbprint": {
+            "type": "string",
+            "defaultValue": "<your-servicefabric-cluster-certificate-thumbprint>",
+            "metadata": {
+                "description": "Thumbprint of the cluster certificate stored in Azure Keyvault"
+            }
+        },
+        "vmssSettings": {
+            "type": "array",
+            "defaultValue": [
+                {
+                    "name": "system",
+                    "vmCount": 9,
+                    "durabilityTier": "silver",
+                    "sku": "Standard_D4s_v3",
+                    "storageAccountType": "Standard_LRS"
+                },
+                {
+                    "name": "frontend",
+                    "vmCount": 5,
+                    "durabilityTier": "silver",
+                    "sku": "Standard_D4s_v3",
+                    "storageAccountType": "Standard_LRS"
+                },
+                {
+                    "name": "backend",
+                    "vmCount": 10,
+                    "durabilityTier": "silver",
+                    "sku": "Standard_D4s_v3",
+                    "storageAccountType": "Standard_LRS"
+                }
+            ]
+        },
+        "vNetSettings": {
+            "type": "object",
+            "defaultValue": {
+                "name": "[concat(parameters('clusterName'),'-vnet')]",
+                "addressPrefixes": [
+                    "10.0.0.0/16"
+                ],
+                "subnets": [
+                    {
+                        "name": "[concat('subnet-', parameters('vmssSettings')[0].name)]",
+                        "addressPrefix": "10.0.0.0/24"
+                    },
+                    {
+                        "name": "[concat('subnet-', parameters('vmssSettings')[1].name)]",
+                        "addressPrefix": "10.0.1.0/24"
+                    },
+                    {
+                        "name": "[concat('subnet-', parameters('vmssSettings')[2].name)]",
+                        "addressPrefix": "10.0.2.0/24"
+                    }
+                ]
+            }
+        },
+        "supportLogStorageAccountType": {
+            "type": "string",
+            "allowedValues": [
+                "Standard_LRS",
+                "Standard_GRS"
+            ],
+            "defaultValue": "Standard_LRS",
+            "metadata": {
+                "description": "Replication option for the support log storage account"
+            }
+        },
+        "applicationDiagnosticsStorageAccountType": {
+            "type": "string",
+            "allowedValues": [
+                "Standard_LRS",
+                "Standard_GRS"
+            ],
+            "defaultValue": "Standard_LRS",
+            "metadata": {
+                "description": "Replication option for the application diagnostics storage account"
+            }
+        },
+        "clusterProtectionLevel": {
+            "type": "string",
+            "allowedValues": [
+                "None",
+                "Sign",
+                "EncryptAndSign"
+            ],
+            "defaultValue": "EncryptAndSign",
+            "metadata": {
+                "description": "Protection level.Three values are allowed - EncryptAndSign, Sign, None. It is best to keep the default of EncryptAndSign, unless you have a need not to"
+            }
+        },
+        "applicationInsightsName": {
+            "type": "string",
+            "defaultValue": "[concat(parameters('clusterName'),'-appInsights')]",
+            "metadata": {
+                "description": "Application Insights name"
+            }
+        },
+        "logAnalyticsSettings": {
+            "type": "object",
+            "defaultValue": {
+                "workspaceName": "<your-logAnalytics-workspace-name>",
+                "sku": "PerGB2018"
+            }
+        }
+    },
+    "variables": {
+        "nicName": "NIC",
+        "storageAccountApiVersion": "2019-04-01",
+        "keyVaultApiVersion": "2018-02-14",
+        "appInsightsApiVersion": "2015-05-01",
+        "vmssApiVersion": "2019-03-01",
+        "publicIpApiVersion": "2019-04-01",
+        "sbVersion": "2017-04-01",
+        "readSASKeyName": "ReceiveConnectionstring",
+        "writeSASKeyName": "SendConnectionstring",
+        "supportLogStorageAccountName": "[toLower( concat('sflogs', uniqueString(resourceGroup().id),'2'))]",
+        "applicationDiagnosticsStorageAccountName": "[toLower(concat('wad',uniqueString(resourceGroup().id), '3' ))]",
+        "certificateUri": "[resourceId(parameters('keyVaultResourceGroupName'), 'Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), parameters('certificateName'))]",
+        "nodeTypeSettings": {
+            "ports": {
+                "applicationStartPort": 20000,
+                "applicationEndPort": 30000,
+                "ephemeralStartPort": 49152,
+                "ephemeralEndPort": 65534,
+                "fabricTcpGatewayPort": 19000,
+                "fabricHttpGatewayPort": 19080,
+                "reverseProxyEndpointPort": 19081,
+                "loadBalancedAppPort1": 8080,
+                "loadBalancedAppPort2": 8690
+            }
+        },
+        "lbNames": {
+            "frontend": "[concat('LB-', parameters('clusterName'),'-',parameters('vmssSettings')[1].name)]",
+            "backend": "[concat('LB-', parameters('clusterName'),'-',parameters('vmssSettings')[2].name)]",
+            "system": "[concat('LB-', parameters('clusterName'),'-',parameters('vmssSettings')[0].name)]",
+            "frontendIp": "[concat(parameters('clusterName'),'-',parameters('vmssSettings')[1].name, '-lbip')]",
+            "backendIp": "[concat(parameters('clusterName'),'-',parameters('vmssSettings')[2].name, '-lbip')]",
+            "systemIp": "[concat(parameters('clusterName'),'-',parameters('vmssSettings')[0].name, '-lbip')]"
+        }
+    },
+    "resources": [
+        {
+            "type": "Microsoft.OperationalInsights/workspaces",
+            "name": "[parameters('logAnalyticsSettings').workspaceName]",
+            "apiVersion": "2015-11-01-preview",
+            "location": "[parameters('clusterLocation')]",
+            "properties": {
+                "sku": {
+                    "name": "[parameters('logAnalyticsSettings').sku]"
+                },
+                "features": {
+                    "searchVersion": 1
+                }
+            }
+        },
+        {
+            "type": "Microsoft.Insights/components",
+            "apiVersion": "[variables('appInsightsApiVersion')]",
+            "name": "[parameters('applicationInsightsName')]",
+            "location": "[if(or(equals(parameters('clusterLocation'),'eastus2'),equals(parameters('clusterLocation'),'westcentralus')),'southcentralus',parameters('clusterLocation'))]",
+            "kind": "web",
+            "properties": {
+                "Application_Type": "web"
+            }
+        },
+        {
+            "type": "Microsoft.DocumentDB/databaseAccounts",
+            "apiVersion": "2015-04-08",
+            "name": "[parameters('cosmosDbSettings').accountName]",
+            "location": "[parameters('clusterLocation')]",
+            "tags": {
+                "defaultExperience": "Core (SQL)"
+            },
+            "kind": "GlobalDocumentDB",
+            "properties": {
+                "name": "[parameters('cosmosDbSettings').accountName]",
+                "enableAutomaticFailover": false,
+                "enableMultipleWriteLocations": true,
+                "isVirtualNetworkFilterEnabled": false,
+                "virtualNetworkRules": [],
+                "databaseAccountOfferType": "Standard",
+                "consistencyPolicy": {
+                    "defaultConsistencyLevel": "[parameters('cosmosDbSettings').defaultConsistencyLevel]",
+                    "maxIntervalInSeconds": "[parameters('cosmosDbSettings').maxIntervalInSeconds]",
+                    "maxStalenessPrefix": "[parameters('cosmosDbSettings').maxStalenessPrefix]"
+                },
+                "locations": [
+                    {
+                        "locationName": "[parameters('clusterLocation')]",
+                        "failoverPriority": 0
+                    }
+                ],
+                "capabilities": []
+            }
+        },
+        {
+            "type": "Microsoft.DocumentDB/databaseAccounts/apis/databases",
+            "name": "[concat(parameters('cosmosDbSettings').accountName, '/sql/', parameters('cosmosDbSettings').dbName)]",
+            "apiVersion": "2016-03-31",
+            "dependsOn": [
+                "[resourceId('Microsoft.DocumentDB/databaseAccounts', parameters('cosmosDbSettings').accountName)]"
+            ],
+            "properties": {
+                "resource": {
+                    "id": "[parameters('cosmosDbSettings').dbName]"
+                },
+                "mode": "Incremental"
+            }
+        },
+        {
+            "type": "Microsoft.DocumentDb/databaseAccounts/apis/databases/containers",
+            "name": "[concat(parameters('cosmosDbSettings').accountName, '/sql/', parameters('cosmosDbSettings').dbName, '/', parameters('cosmosDbSettings').containerName)]",
+            "apiVersion": "2016-03-31",
+            "dependsOn": [
+                "[resourceId('Microsoft.DocumentDB/databaseAccounts/apis/databases', parameters('cosmosDbSettings').accountName, 'sql', parameters('cosmosDbSettings').dbName)]"
+            ],
+            "properties": {
+                "resource": {
+                    "id": "[parameters('cosmosDbSettings').containerName]",
+                    "partitionKey": {
+                        "paths": [
+                            "/id"
+                        ],
+                        "kind": "Hash"
+                    },
+                    "indexingPolicy": {
+                        "indexingMode": "consistent",
+                        "includedPaths": [
+                            {
+                                "path": "/*",
+                                "indexes": [
+                                    {
+                                        "kind": "Range",
+                                        "dataType": "number",
+                                        "precision": -1
+                                    },
+                                    {
+                                        "kind": "Range",
+                                        "dataType": "string",
+                                        "precision": -1
+                                    }
+                                ]
+                            }
+                        ],
+                        "excludedPaths": []
+                    },
+                    "options": {
+                        "throughput": "[parameters('cosmosDbSettings').throughput]"
+                    }
+                },
+                "mode": "Incremental"
+            }
+        },
+        {
+            "apiVersion": "[variables('sbVersion')]",
+            "name": "[parameters('serviceBusSettings').namespaceName]",
+            "type": "Microsoft.ServiceBus/namespaces",
+            "location": "[parameters('clusterLocation')]",
+            "sku": {
+                "name": "Standard",
+                "tier": "Standard"
+            },
+            "properties": {},
+            "resources": [
+                {
+                    "apiVersion": "[variables('sbVersion')]",
+                    "name": "[parameters('serviceBusSettings').queueName]",
+                    "type": "queues",
+                    "dependsOn": [
+                        "[resourceId('Microsoft.ServiceBus/namespaces', parameters('serviceBusSettings').namespaceName)]"
+                    ],
+                    "properties": {
+                        "path": "[parameters('serviceBusSettings').queueName]",
+                        "lockDuration": "PT30S",
+                        "maxSizeInMegabytes": "1024",
+                        "requiresDuplicateDetection": "false",
+                        "requiresSession": "false",
+                        "defaultMessageTimeToLive": "P10675199DT2H48M5.4775807S",
+                        "deadLetteringOnMessageExpiration": "false",
+                        "duplicateDetectionHistoryTimeWindow": "PT10M",
+                        "maxDeliveryCount": "200",
+                        "autoDeleteOnIdle": "P10675199DT2H48M5.4775807S",
+                        "enablePartitioning": "true",
+                        "enableExpress": "false"
+                    },
+                    "resources": [
+                        {
+                            "apiVersion": "[variables('sbVersion')]",
+                            "name": "[variables('readSASKeyName')]",
+                            "type": "authorizationRules",
+                            "dependsOn": [
+                                "[parameters('serviceBusSettings').queueName]"
+                            ],
+                            "location": "[parameters('clusterLocation')]",
+                            "properties": {
+                                "rights": [
+                                    "Listen"
+                                ]
+                            }
+                        },
+                        {
+                            "apiVersion": "[variables('sbVersion')]",
+                            "name": "[variables('writeSASKeyName')]",
+                            "type": "authorizationRules",
+                            "dependsOn": [
+                                "[parameters('serviceBusSettings').queueName]"
+                            ],
+                            "location": "[parameters('clusterLocation')]",
+                            "properties": {
+                                "rights": [
+                                    "Send"
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "type": "Microsoft.Network/publicIPAddresses",
+            "apiVersion": "[variables('publicIpApiVersion')]",
+            "name": "[variables('lbNames').frontendIp]",
+            "location": "[parameters('clusterLocation')]",
+            "tags": {
+                "resourceType": "Service Fabric",
+                "clusterName": "[parameters('clusterName')]"
+            },
+            "sku": {
+                "name": "Basic",
+                "tier": "Regional"
+            },
+            "properties": {
+                "publicIPAddressVersion": "IPv4",
+                "publicIPAllocationMethod": "Dynamic",
+                "idleTimeoutInMinutes": 4,
+                "dnsSettings": {
+                    "domainNameLabel": "[concat(parameters('clusterName'),'-',parameters('vmssSettings')[1].name)]"
+                },
+                "ipTags": []
+            }
+        },
+        {
+            "type": "Microsoft.Network/publicIPAddresses",
+            "apiVersion": "[variables('publicIpApiVersion')]",
+            "name": "[variables('lbNames').backendIp]",
+            "location": "[parameters('clusterLocation')]",
+            "tags": {
+                "resourceType": "Service Fabric",
+                "clusterName": "[parameters('clusterName')]"
+            },
+            "sku": {
+                "name": "Basic",
+                "tier": "Regional"
+            },
+            "properties": {
+                "publicIPAddressVersion": "IPv4",
+                "publicIPAllocationMethod": "Dynamic",
+                "idleTimeoutInMinutes": 4,
+                "dnsSettings": {
+                    "domainNameLabel": "[concat(parameters('clusterName'),'-',parameters('vmssSettings')[2].name)]"
+                },
+                "ipTags": []
+            }
+        },
+        {
+            "type": "Microsoft.Network/publicIPAddresses",
+            "apiVersion": "[variables('publicIpApiVersion')]",
+            "name": "[variables('lbNames').systemIp]",
+            "location": "[parameters('clusterLocation')]",
+            "tags": {
+                "resourceType": "Service Fabric",
+                "clusterName": "[parameters('clusterName')]"
+            },
+            "sku": {
+                "name": "Basic",
+                "tier": "Regional"
+            },
+            "properties": {
+                "publicIPAddressVersion": "IPv4",
+                "publicIPAllocationMethod": "Dynamic",
+                "idleTimeoutInMinutes": 4,
+                "dnsSettings": {
+                    "domainNameLabel": "[parameters('clusterName')]",
+                    "fqdn": "[concat(parameters('clusterName'),'.',parameters('clusterLocation'),'.cloudapp.azure.com')]"
+                },
+                "ipTags": []
+            }
+        },
+        {
+            "type": "Microsoft.Network/virtualNetworks",
+            "apiVersion": "2019-02-01",
+            "name": "[parameters('vNetSettings').name]",
+            "location": "[parameters('clusterLocation')]",
+            "properties": {
+                "addressSpace": {
+                    "addressPrefixes": "[parameters('vNetSettings').addressPrefixes]"
+                },
+                "subnets": [
+                    {
+                        "name": "[parameters('vNetSettings').subnets[2].name]",
+                        "properties": {
+                            "addressPrefix": "[parameters('vNetSettings').subnets[2].addressPrefix]",
+                            "serviceEndpoints": [
+                                {
+                                    "service": "Microsoft.AzureCosmosDB",
+                                    "locations": [
+                                        "*"
+                                    ]
+                                }
+                            ],
+                            "delegations": []
+                        }
+                    },
+                    {
+                        "name": "[parameters('vNetSettings').subnets[1].name]",
+                        "properties": {
+                            "addressPrefix": "[parameters('vNetSettings').subnets[1].addressPrefix]",
+                            "serviceEndpoints": [],
+                            "delegations": []
+                        }
+                    },
+                    {
+                        "name": "[parameters('vNetSettings').subnets[0].name]",
+                        "properties": {
+                            "addressPrefix": "[parameters('vNetSettings').subnets[0].addressPrefix]",
+                            "serviceEndpoints": [],
+                            "delegations": []
+                        }
+                    }
+                ],
+                "virtualNetworkPeerings": [],
+                "enableDdosProtection": false,
+                "enableVmProtection": false
+            }
+        },
+        {
+            "type": "Microsoft.Storage/storageAccounts",
+            "apiVersion": "[variables('storageAccountApiVersion')]",
+            "name": "[variables('applicationDiagnosticsStorageAccountName')]",
+            "location": "[parameters('clusterLocation')]",
+            "tags": {
+                "resourceType": "Service Fabric",
+                "clusterName": "[parameters('clusterName')]"
+            },
+            "sku": {
+                "name": "[parameters('applicationDiagnosticsStorageAccountType')]",
+                "tier": "Standard"
+            },
+            "kind": "Storage",
+            "properties": {
+                "networkAcls": {
+                    "bypass": "AzureServices",
+                    "virtualNetworkRules": [],
+                    "ipRules": [],
+                    "defaultAction": "Allow"
+                },
+                "supportsHttpsTrafficOnly": false,
+                "encryption": {
+                    "services": {
+                        "file": {
+                            "enabled": true
+                        },
+                        "blob": {
+                            "enabled": true
+                        }
+                    },
+                    "keySource": "Microsoft.Storage"
+                }
+            }
+        },
+        {
+            "type": "Microsoft.Storage/storageAccounts",
+            "apiVersion": "[variables('storageAccountApiVersion')]",
+            "name": "[variables('supportLogStorageAccountName')]",
+            "location": "[parameters('clusterLocation')]",
+            "tags": {
+                "resourceType": "Service Fabric",
+                "clusterName": "[parameters('clusterName')]"
+            },
+            "sku": {
+                "name": "[parameters('supportLogStorageAccountType')]",
+                "tier": "Standard"
+            },
+            "kind": "Storage",
+            "properties": {
+                "networkAcls": {
+                    "bypass": "AzureServices",
+                    "virtualNetworkRules": [],
+                    "ipRules": [],
+                    "defaultAction": "Allow"
+                },
+                "supportsHttpsTrafficOnly": false,
+                "encryption": {
+                    "services": {
+                        "file": {
+                            "enabled": true
+                        },
+                        "blob": {
+                            "enabled": true
+                        }
+                    },
+                    "keySource": "Microsoft.Storage"
+                }
+            }
+        },
+        {
+            "type": "Microsoft.Resources/deployments",
+            "apiVersion": "2017-05-10",
+            "name": "[concat('deploy-keyvault-secrets-', uniqueString(resourceGroup().id))]",
+            "resourceGroup": "[parameters('keyVaultResourceGroupName')]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Insights/components', parameters('applicationInsightsName'))]",
+                "[resourceId('Microsoft.DocumentDb/databaseAccounts', parameters('cosmosDbSettings').accountName)]",
+                "[resourceId('Microsoft.DocumentDb/databaseAccounts', parameters('cosmosDbSettings').accountName)]",
+                "[resourceId('Microsoft.ServiceBus/namespaces', parameters('serviceBusSettings').namespaceName)]",
+                "[resourceId('Microsoft.ServiceBus/namespaces', parameters('serviceBusSettings').namespaceName)]",
+                "[resourceId('Microsoft.Compute/virtualMachineScaleSets', parameters('vmssSettings')[0].name)]",
+                "[resourceId('Microsoft.Compute/virtualMachineScaleSets', parameters('vmssSettings')[1].name)]",
+                "[resourceId('Microsoft.Compute/virtualMachineScaleSets', parameters('vmssSettings')[2].name)]"
+            ],
+            "properties": {
+                "mode": "Incremental",
+                "template": {
+                    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+                    "contentVersion": "1.0.0.0",
+                    "parameters": {},
+                    "variables": {},
+                    "resources": [
+                        {
+                            "type": "Microsoft.KeyVault/vaults/secrets",
+                            "apiVersion": "[variables('keyVaultApiVersion')]",
+                            "name": "[concat(parameters('keyVaultName'), '/ApplicationInsights--InstrumentationKey')]",
+                            "location": "[parameters('clusterLocation')]",
+                            "tags": {
+                                "file-encoding": "utf-8"
+                            },
+                            "properties": {
+                                "value": "[reference(resourceId('Microsoft.Insights/components', parameters('applicationInsightsName')), variables('appInsightsApiVersion')).InstrumentationKey]",
+                                "attributes": {
+                                    "enabled": true
+                                }
+                            }
+                        },
+                        {
+                            "type": "Microsoft.KeyVault/vaults/secrets",
+                            "apiVersion": "[variables('keyVaultApiVersion')]",
+                            "name": "[concat(parameters('keyVaultName'), '/CosmosDB--AuthKey')]",
+                            "location": "[parameters('clusterLocation')]",
+                            "properties": {
+                                "value": "[listKeys(resourceId('Microsoft.DocumentDb/databaseAccounts', parameters('cosmosDbSettings').accountName), '2015-04-08').primaryMasterKey]",
+                                "attributes": {
+                                    "enabled": true
+                                }
+                            }
+                        },
+                        {
+                            "type": "Microsoft.KeyVault/vaults/secrets",
+                            "apiVersion": "[variables('keyVaultApiVersion')]",
+                            "name": "[concat(parameters('keyVaultName'), '/CosmosDB--Endpoint')]",
+                            "location": "[parameters('clusterLocation')]",
+                            "properties": {
+                                "value": "[reference(resourceId('Microsoft.DocumentDb/databaseAccounts', parameters('cosmosDbSettings').accountName), '2015-04-08').documentEndpoint]",
+                                "attributes": {
+                                    "enabled": true
+                                }
+                            }
+                        },
+                        {
+                            "type": "Microsoft.KeyVault/vaults/secrets",
+                            "apiVersion": "[variables('keyVaultApiVersion')]",
+                            "name": "[concat(parameters('keyVaultName'), '/ServiceBusQueue--', variables('readSASKeyName'))]",
+                            "location": "[parameters('clusterLocation')]",
+                            "properties": {
+                                "value": "[listKeys(resourceId('Microsoft.ServiceBus/namespaces/queues/authorizationRules', parameters('serviceBusSettings').namespaceName, parameters('serviceBusSettings').queueName, variables('readSASKeyName')), variables('sbVersion')).primaryConnectionString]",
+                                "attributes": {
+                                    "enabled": true
+                                }
+                            }
+                        },
+                        {
+                            "type": "Microsoft.KeyVault/vaults/secrets",
+                            "apiVersion": "[variables('keyVaultApiVersion')]",
+                            "name": "[concat(parameters('keyVaultName'), '/ServiceBusQueue--', variables('writeSASKeyName'))]",
+                            "location": "[parameters('clusterLocation')]",
+                            "properties": {
+                                "value": "[listKeys(resourceId('Microsoft.ServiceBus/namespaces/queues/authorizationRules', parameters('serviceBusSettings').namespaceName, parameters('serviceBusSettings').queueName, variables('writeSASKeyName')), variables('sbVersion')).primaryConnectionString]",
+                                "attributes": {
+                                    "enabled": true
+                                }
+                            }
+                        },
+                        {
+                            "type": "Microsoft.KeyVault/vaults/accessPolicies",
+                            "name": "[concat(parameters('keyVaultName'), '/add')]",
+                            "apiVersion": "2018-02-14",
+                            "properties": {
+                                "accessPolicies": [
+                                    {
+                                        "tenantId": "[subscription().tenantId]",
+                                        "objectId": "[reference(resourceId('Microsoft.Compute/virtualMachineScaleSets', parameters('vmssSettings')[0].name), variables('vmssApiVersion'), 'Full').identity.principalId]",
+                                        "permissions": {
+                                            "secrets": [
+                                                "get",
+                                                "list"
+                                            ]
+                                        }
+                                    },
+                                    {
+                                        "tenantId": "[subscription().tenantId]",
+                                        "objectId": "[reference(resourceId('Microsoft.Compute/virtualMachineScaleSets', parameters('vmssSettings')[1].name), variables('vmssApiVersion'), 'Full').identity.principalId]",
+                                        "permissions": {
+                                            "secrets": [
+                                                "get",
+                                                "list"
+                                            ]
+                                        }
+                                    },
+                                    {
+                                        "tenantId": "[subscription().tenantId]",
+                                        "objectId": "[reference(resourceId('Microsoft.Compute/virtualMachineScaleSets', parameters('vmssSettings')[2].name), variables('vmssApiVersion'), 'Full').identity.principalId]",
+                                        "permissions": {
+                                            "secrets": [
+                                                "get",
+                                                "list"
+                                            ]
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    ],
+                    "outputs": {}
+                }
+            }
+        },
+        {
+            "type": "Microsoft.Network/loadBalancers",
+            "apiVersion": "2018-12-01",
+            "name": "[variables('lbNames').backend]",
+            "location": "[parameters('clusterLocation')]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Network/publicIPAddresses', variables('lbNames').backendIp)]"
+            ],
+            "sku": {
+                "name": "Basic",
+                "tier": "Regional"
+            },
+            "properties": {
+                "frontendIPConfigurations": [
+                    {
+                        "name": "LoadBalancerIPConfig",
+                        "properties": {
+                            "privateIPAllocationMethod": "Dynamic",
+                            "publicIPAddress": {
+                                "id": "[resourceId('Microsoft.Network/publicIPAddresses', variables('lbNames').backendIp)]"
+                            }
+                        }
+                    }
+                ],
+                "backendAddressPools": [
+                    {
+                        "name": "LoadBalancerBEAddressPool",
+                        "properties": {}
+                    }
+                ],
+                "loadBalancingRules": [
+                    {
+                        "name": "LBRule",
+                        "properties": {
+                            "frontendIPConfiguration": {
+                                "id": "[concat(resourceId('Microsoft.Network/loadBalancers', variables('lbNames').backend), '/frontendIPConfigurations/LoadBalancerIPConfig')]"
+                            },
+                            "frontendPort": 19000,
+                            "backendPort": 19000,
+                            "enableFloatingIP": false,
+                            "idleTimeoutInMinutes": 5,
+                            "protocol": "Tcp",
+                            "enableTcpReset": false,
+                            "loadDistribution": "Default",
+                            "backendAddressPool": {
+                                "id": "[concat(resourceId('Microsoft.Network/loadBalancers', variables('lbNames').backend), '/backendAddressPools/LoadBalancerBEAddressPool')]"
+                            },
+                            "probe": {
+                                "id": "[concat(resourceId('Microsoft.Network/loadBalancers', variables('lbNames').backend), '/probes/FabricGatewayProbe')]"
+                            }
+                        }
+                    },
+                    {
+                        "name": "LBHttpRule",
+                        "properties": {
+                            "frontendIPConfiguration": {
+                                "id": "[concat(resourceId('Microsoft.Network/loadBalancers', variables('lbNames').backend), '/frontendIPConfigurations/LoadBalancerIPConfig')]"
+                            },
+                            "frontendPort": 19080,
+                            "backendPort": 19080,
+                            "enableFloatingIP": false,
+                            "idleTimeoutInMinutes": 5,
+                            "protocol": "Tcp",
+                            "enableTcpReset": false,
+                            "loadDistribution": "Default",
+                            "backendAddressPool": {
+                                "id": "[concat(resourceId('Microsoft.Network/loadBalancers', variables('lbNames').backend), '/backendAddressPools/LoadBalancerBEAddressPool')]"
+                            },
+                            "probe": {
+                                "id": "[concat(resourceId('Microsoft.Network/loadBalancers', variables('lbNames').backend), '/probes/FabricHttpGatewayProbe')]"
+                            }
+                        }
+                    },
+                    {
+                        "name": "AppPortLBRule1",
+                        "properties": {
+                            "frontendIPConfiguration": {
+                                "id": "[concat(resourceId('Microsoft.Network/loadBalancers', variables('lbNames').backend), '/frontendIPConfigurations/LoadBalancerIPConfig')]"
+                            },
+                            "frontendPort": "[variables('nodeTypeSettings').ports.loadBalancedAppPort1]",
+                            "backendPort": "[variables('nodeTypeSettings').ports.loadBalancedAppPort1]",
+                            "enableFloatingIP": false,
+                            "idleTimeoutInMinutes": 4,
+                            "protocol": "Tcp",
+                            "enableTcpReset": false,
+                            "loadDistribution": "Default",
+                            "backendAddressPool": {
+                                "id": "[concat(resourceId('Microsoft.Network/loadBalancers', variables('lbNames').backend), '/backendAddressPools/LoadBalancerBEAddressPool')]"
+                            },
+                            "probe": {
+                                "id": "[concat(resourceId('Microsoft.Network/loadBalancers', variables('lbNames').backend), '/probes/AppPortProbe1')]"
+                            }
+                        }
+                    },
+                    {
+                        "name": "AppPortLBRule2",
+                        "properties": {
+                            "frontendIPConfiguration": {
+                                "id": "[concat(resourceId('Microsoft.Network/loadBalancers', variables('lbNames').backend), '/frontendIPConfigurations/LoadBalancerIPConfig')]"
+                            },
+                            "frontendPort": "[variables('nodeTypeSettings').ports.loadBalancedAppPort2]",
+                            "backendPort": "[variables('nodeTypeSettings').ports.loadBalancedAppPort2]",
+                            "enableFloatingIP": false,
+                            "idleTimeoutInMinutes": 4,
+                            "protocol": "Tcp",
+                            "enableTcpReset": false,
+                            "loadDistribution": "Default",
+                            "backendAddressPool": {
+                                "id": "[concat(resourceId('Microsoft.Network/loadBalancers', variables('lbNames').backend), '/backendAddressPools/LoadBalancerBEAddressPool')]"
+                            },
+                            "probe": {
+                                "id": "[concat(resourceId('Microsoft.Network/loadBalancers', variables('lbNames').backend), '/probes/AppPortProbe2')]"
+                            }
+                        }
+                    }
+                ],
+                "probes": [
+                    {
+                        "name": "FabricGatewayProbe",
+                        "properties": {
+                            "protocol": "Tcp",
+                            "port": "[variables('nodeTypeSettings').ports.fabricTcpGatewayPort]",
+                            "intervalInSeconds": 5,
+                            "numberOfProbes": 2
+                        }
+                    },
+                    {
+                        "name": "FabricHttpGatewayProbe",
+                        "properties": {
+                            "protocol": "Tcp",
+                            "port": "[variables('nodeTypeSettings').ports.fabricHttpGatewayPort]",
+                            "intervalInSeconds": 5,
+                            "numberOfProbes": 2
+                        }
+                    },
+                    {
+                        "name": "AppPortProbe1",
+                        "properties": {
+                            "protocol": "Tcp",
+                            "port": "[variables('nodeTypeSettings').ports.loadBalancedAppPort1]",
+                            "intervalInSeconds": 5,
+                            "numberOfProbes": 2
+                        }
+                    },
+                    {
+                        "name": "AppPortProbe2",
+                        "properties": {
+                            "protocol": "Tcp",
+                            "port": "[variables('nodeTypeSettings').ports.loadBalancedAppPort2]",
+                            "intervalInSeconds": 5,
+                            "numberOfProbes": 2
+                        }
+                    }
+                ],
+                "inboundNatPools": [
+                    {
+                        "name": "LoadBalancerBEAddressNatPool",
+                        "properties": {
+                            "frontendPortRangeStart": 3389,
+                            "frontendPortRangeEnd": 4500,
+                            "backendPort": 3389,
+                            "protocol": "Tcp",
+                            "idleTimeoutInMinutes": 4,
+                            "enableFloatingIP": false,
+                            "enableTcpReset": false,
+                            "frontendIPConfiguration": {
+                                "id": "[concat(resourceId('Microsoft.Network/loadBalancers', variables('lbNames').backend), '/frontendIPConfigurations/LoadBalancerIPConfig')]"
+                            }
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "type": "Microsoft.Network/loadBalancers",
+            "apiVersion": "2018-12-01",
+            "name": "[variables('lbNames').frontend]",
+            "location": "[parameters('clusterLocation')]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Network/publicIPAddresses', variables('lbNames').frontendIp)]"
+            ],
+            "sku": {
+                "name": "Basic",
+                "tier": "Regional"
+            },
+            "properties": {
+                "frontendIPConfigurations": [
+                    {
+                        "name": "LoadBalancerIPConfig",
+                        "properties": {
+                            "privateIPAllocationMethod": "Dynamic",
+                            "publicIPAddress": {
+                                "id": "[resourceId('Microsoft.Network/publicIPAddresses', variables('lbNames').frontendIp)]"
+                            }
+                        }
+                    }
+                ],
+                "backendAddressPools": [
+                    {
+                        "name": "LoadBalancerBEAddressPool",
+                        "properties": {}
+                    }
+                ],
+                "loadBalancingRules": [
+                    {
+                        "name": "LBRule",
+                        "properties": {
+                            "frontendIPConfiguration": {
+                                "id": "[concat(resourceId('Microsoft.Network/loadBalancers', variables('lbNames').frontend), '/frontendIPConfigurations/LoadBalancerIPConfig')]"
+                            },
+                            "frontendPort": "[variables('nodeTypeSettings').ports.fabricTcpGatewayPort]",
+                            "backendPort": "[variables('nodeTypeSettings').ports.fabricTcpGatewayPort]",
+                            "enableFloatingIP": false,
+                            "idleTimeoutInMinutes": 5,
+                            "protocol": "Tcp",
+                            "enableTcpReset": false,
+                            "loadDistribution": "Default",
+                            "backendAddressPool": {
+                                "id": "[concat(resourceId('Microsoft.Network/loadBalancers', variables('lbNames').frontend), '/backendAddressPools/LoadBalancerBEAddressPool')]"
+                            },
+                            "probe": {
+                                "id": "[concat(resourceId('Microsoft.Network/loadBalancers', variables('lbNames').frontend), '/probes/FabricGatewayProbe')]"
+                            }
+                        }
+                    },
+                    {
+                        "name": "LBHttpRule",
+                        "properties": {
+                            "frontendIPConfiguration": {
+                                "id": "[concat(resourceId('Microsoft.Network/loadBalancers', variables('lbNames').frontend), '/frontendIPConfigurations/LoadBalancerIPConfig')]"
+                            },
+                            "frontendPort": "[variables('nodeTypeSettings').ports.fabricHttpGatewayPort]",
+                            "backendPort": "[variables('nodeTypeSettings').ports.fabricHttpGatewayPort]",
+                            "enableFloatingIP": false,
+                            "idleTimeoutInMinutes": 5,
+                            "protocol": "Tcp",
+                            "enableTcpReset": false,
+                            "loadDistribution": "Default",
+                            "backendAddressPool": {
+                                "id": "[concat(resourceId('Microsoft.Network/loadBalancers', variables('lbNames').frontend), '/backendAddressPools/LoadBalancerBEAddressPool')]"
+                            },
+                            "probe": {
+                                "id": "[concat(resourceId('Microsoft.Network/loadBalancers', variables('lbNames').frontend), '/probes/FabricHttpGatewayProbe')]"
+                            }
+                        }
+                    },
+                    {
+                        "name": "AppPortLBRule1",
+                        "properties": {
+                            "frontendIPConfiguration": {
+                                "id": "[concat(resourceId('Microsoft.Network/loadBalancers', variables('lbNames').frontend), '/frontendIPConfigurations/LoadBalancerIPConfig')]"
+                            },
+                            "frontendPort": "[variables('nodeTypeSettings').ports.loadBalancedAppPort1]",
+                            "backendPort": "[variables('nodeTypeSettings').ports.loadBalancedAppPort1]",
+                            "enableFloatingIP": false,
+                            "idleTimeoutInMinutes": 4,
+                            "protocol": "Tcp",
+                            "enableTcpReset": false,
+                            "loadDistribution": "Default",
+                            "backendAddressPool": {
+                                "id": "[concat(resourceId('Microsoft.Network/loadBalancers', variables('lbNames').frontend), '/backendAddressPools/LoadBalancerBEAddressPool')]"
+                            },
+                            "probe": {
+                                "id": "[concat(resourceId('Microsoft.Network/loadBalancers', variables('lbNames').frontend), '/probes/AppPortProbe1')]"
+                            }
+                        }
+                    }
+                ],
+                "probes": [
+                    {
+                        "name": "FabricGatewayProbe",
+                        "properties": {
+                            "protocol": "Tcp",
+                            "port": "[variables('nodeTypeSettings').ports.fabricTcpGatewayPort]",
+                            "intervalInSeconds": 5,
+                            "numberOfProbes": 2
+                        }
+                    },
+                    {
+                        "name": "FabricHttpGatewayProbe",
+                        "properties": {
+                            "protocol": "Tcp",
+                            "port": "[variables('nodeTypeSettings').ports.fabricHttpGatewayPort]",
+                            "intervalInSeconds": 5,
+                            "numberOfProbes": 2
+                        }
+                    },
+                    {
+                        "name": "AppPortProbe1",
+                        "properties": {
+                            "protocol": "Tcp",
+                            "port": "[variables('nodeTypeSettings').ports.loadBalancedAppPort1]",
+                            "intervalInSeconds": 5,
+                            "numberOfProbes": 2
+                        }
+                    }
+                ],
+                "inboundNatPools": [
+                    {
+                        "name": "LoadBalancerBEAddressNatPool",
+                        "properties": {
+                            "frontendPortRangeStart": 3389,
+                            "frontendPortRangeEnd": 4500,
+                            "backendPort": 3389,
+                            "protocol": "Tcp",
+                            "idleTimeoutInMinutes": 4,
+                            "enableFloatingIP": false,
+                            "enableTcpReset": false,
+                            "frontendIPConfiguration": {
+                                "id": "[concat(resourceId('Microsoft.Network/loadBalancers', variables('lbNames').frontend), '/frontendIPConfigurations/LoadBalancerIPConfig')]"
+                            }
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "type": "Microsoft.Network/loadBalancers",
+            "apiVersion": "2018-12-01",
+            "name": "[variables('lbNames').system]",
+            "location": "[parameters('clusterLocation')]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Network/publicIPAddresses', variables('lbNames').systemIp)]"
+            ],
+            "sku": {
+                "name": "Basic",
+                "tier": "Regional"
+            },
+            "properties": {
+                "frontendIPConfigurations": [
+                    {
+                        "name": "LoadBalancerIPConfig",
+                        "properties": {
+                            "privateIPAllocationMethod": "Dynamic",
+                            "publicIPAddress": {
+                                "id": "[resourceId('Microsoft.Network/publicIPAddresses', variables('lbNames').systemIp)]"
+                            }
+                        }
+                    }
+                ],
+                "backendAddressPools": [
+                    {
+                        "name": "LoadBalancerBEAddressPool",
+                        "properties": {}
+                    }
+                ],
+                "loadBalancingRules": [
+                    {
+                        "name": "LBRule",
+                        "properties": {
+                            "frontendIPConfiguration": {
+                                "id": "[concat(resourceId('Microsoft.Network/loadBalancers', variables('lbNames').system), '/frontendIPConfigurations/LoadBalancerIPConfig')]"
+                            },
+                            "frontendPort": "[variables('nodeTypeSettings').ports.fabricTcpGatewayPort]",
+                            "backendPort": "[variables('nodeTypeSettings').ports.fabricTcpGatewayPort]",
+                            "enableFloatingIP": false,
+                            "idleTimeoutInMinutes": 5,
+                            "protocol": "Tcp",
+                            "enableTcpReset": false,
+                            "loadDistribution": "Default",
+                            "backendAddressPool": {
+                                "id": "[concat(resourceId('Microsoft.Network/loadBalancers', variables('lbNames').system), '/backendAddressPools/LoadBalancerBEAddressPool')]"
+                            },
+                            "probe": {
+                                "id": "[concat(resourceId('Microsoft.Network/loadBalancers', variables('lbNames').system), '/probes/FabricGatewayProbe')]"
+                            }
+                        }
+                    },
+                    {
+                        "name": "LBHttpRule",
+                        "properties": {
+                            "frontendIPConfiguration": {
+                                "id": "[concat(resourceId('Microsoft.Network/loadBalancers', variables('lbNames').system), '/frontendIPConfigurations/LoadBalancerIPConfig')]"
+                            },
+                            "frontendPort": "[variables('nodeTypeSettings').ports.fabricHttpGatewayPort]",
+                            "backendPort": "[variables('nodeTypeSettings').ports.fabricHttpGatewayPort]",
+                            "enableFloatingIP": false,
+                            "idleTimeoutInMinutes": 5,
+                            "protocol": "Tcp",
+                            "enableTcpReset": false,
+                            "loadDistribution": "Default",
+                            "backendAddressPool": {
+                                "id": "[concat(resourceId('Microsoft.Network/loadBalancers', variables('lbNames').system), '/backendAddressPools/LoadBalancerBEAddressPool')]"
+                            },
+                            "probe": {
+                                "id": "[concat(resourceId('Microsoft.Network/loadBalancers', variables('lbNames').system), '/probes/FabricHttpGatewayProbe')]"
+                            }
+                        }
+                    }
+                ],
+                "probes": [
+                    {
+                        "name": "FabricGatewayProbe",
+                        "properties": {
+                            "protocol": "Tcp",
+                            "port": "[variables('nodeTypeSettings').ports.fabricTcpGatewayPort]",
+                            "intervalInSeconds": 5,
+                            "numberOfProbes": 2
+                        }
+                    },
+                    {
+                        "name": "FabricHttpGatewayProbe",
+                        "properties": {
+                            "protocol": "Tcp",
+                            "port": "[variables('nodeTypeSettings').ports.fabricHttpGatewayPort]",
+                            "intervalInSeconds": 5,
+                            "numberOfProbes": 2
+                        }
+                    }
+                ],
+                "inboundNatPools": [
+                    {
+                        "name": "LoadBalancerBEAddressNatPool",
+                        "properties": {
+                            "frontendPortRangeStart": 3389,
+                            "frontendPortRangeEnd": 4500,
+                            "backendPort": 3389,
+                            "protocol": "Tcp",
+                            "idleTimeoutInMinutes": 4,
+                            "enableFloatingIP": false,
+                            "enableTcpReset": false,
+                            "frontendIPConfiguration": {
+                                "id": "[concat(resourceId('Microsoft.Network/loadBalancers', variables('lbNames').system), '/frontendIPConfigurations/LoadBalancerIPConfig')]"
+                            }
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "type": "Microsoft.ServiceFabric/clusters",
+            "apiVersion": "2018-02-01",
+            "name": "[parameters('clusterName')]",
+            "location": "[parameters('clusterLocation')]",
+            "dependsOn": [
+                "[concat('Microsoft.Storage/storageAccounts/', variables('supportLogStorageAccountName'))]"
+            ],
+            "tags": {
+                "resourceType": "Service Fabric",
+                "clusterName": "[parameters('clusterName')]"
+            },
+            "properties": {
+                "managementEndpoint": "[concat('https://',reference(variables('lbNames').systemIp).dnsSettings.fqdn,':',variables('nodeTypeSettings').ports.fabricHttpGatewayPort)]",
+                "certificate": {
+                    "thumbprint": "[parameters('certificateThumbprint')]",
+                    "x509StoreName": "[parameters('certificateStoreName')]"
+                },
+                "clientCertificateThumbprints": [],
+                "clientCertificateCommonNames": [],
+                "fabricSettings": [
+                    {
+                        "name": "Security",
+                        "parameters": [
+                            {
+                                "name": "ClusterProtectionLevel",
+                                "value": "[parameters('clusterProtectionLevel')]"
+                            }
+                        ]
+                    }
+                ],
+                "diagnosticsStorageAccountConfig": {
+                    "blobEndpoint": "[reference(concat('Microsoft.Storage/storageAccounts/', variables('supportLogStorageAccountName')), variables('storageAccountApiVersion')).primaryEndpoints.blob]",
+                    "protectedAccountKeyName": "StorageAccountKey1",
+                    "queueEndpoint": "[reference(concat('Microsoft.Storage/storageAccounts/', variables('supportLogStorageAccountName')), variables('storageAccountApiVersion')).primaryEndpoints.queue]",
+                    "storageAccountName": "[variables('supportLogStorageAccountName')]",
+                    "tableEndpoint": "[reference(concat('Microsoft.Storage/storageAccounts/', variables('supportLogStorageAccountName')), variables('storageAccountApiVersion')).primaryEndpoints.table]"
+                },
+                "vmImage": "Windows",
+                "reliabilityLevel": "Platinum",
+                "nodeTypes": [
+                    {
+                        "name": "[parameters('vmssSettings')[0].name]",
+                        "vmInstanceCount": "[parameters('vmssSettings')[0].vmCount]",
+                        "placementProperties": {
+                            "nodeType": "[parameters('vmssSettings')[0].name]"
+                        },
+                        "clientConnectionEndpointPort": "[variables('nodeTypeSettings').ports.fabricTcpGatewayPort]",
+                        "httpGatewayEndpointPort": "[variables('nodeTypeSettings').ports.fabricHttpGatewayPort]",
+                        "applicationPorts": {
+                            "startPort": "[variables('nodeTypeSettings').ports.applicationStartPort]",
+                            "endPort": "[variables('nodeTypeSettings').ports.applicationEndPort]"
+                        },
+                        "ephemeralPorts": {
+                            "startPort": "[variables('nodeTypeSettings').ports.ephemeralStartPort]",
+                            "endPort": "[variables('nodeTypeSettings').ports.ephemeralEndPort]"
+                        },
+                        "isPrimary": true,
+                        "reverseProxyEndpointPort": "[variables('nodeTypeSettings').ports.reverseProxyEndpointPort]",
+                        "durabilityLevel": "[parameters('vmssSettings')[0].durabilityTier]"
+                    },
+                    {
+                        "name": "[parameters('vmssSettings')[1].name]",
+                        "vmInstanceCount": "[parameters('vmssSettings')[1].vmCount]",
+                        "placementProperties": {
+                            "nodeType": "[parameters('vmssSettings')[1].name]"
+                        },
+                        "clientConnectionEndpointPort": "[variables('nodeTypeSettings').ports.fabricTcpGatewayPort]",
+                        "httpGatewayEndpointPort": "[variables('nodeTypeSettings').ports.fabricHttpGatewayPort]",
+                        "applicationPorts": {
+                            "startPort": "[variables('nodeTypeSettings').ports.applicationStartPort]",
+                            "endPort": "[variables('nodeTypeSettings').ports.applicationEndPort]"
+                        },
+                        "ephemeralPorts": {
+                            "startPort": "[variables('nodeTypeSettings').ports.ephemeralStartPort]",
+                            "endPort": "[variables('nodeTypeSettings').ports.ephemeralEndPort]"
+                        },
+                        "isPrimary": false,
+                        "reverseProxyEndpointPort": "[variables('nodeTypeSettings').ports.reverseProxyEndpointPort]",
+                        "durabilityLevel": "[parameters('vmssSettings')[1].durabilityTier]"
+                    },
+                    {
+                        "name": "[parameters('vmssSettings')[2].name]",
+                        "vmInstanceCount": "[parameters('vmssSettings')[2].vmCount]",
+                        "placementProperties": {
+                            "nodeType": "[parameters('vmssSettings')[2].name]"
+                        },
+                        "clientConnectionEndpointPort": "[variables('nodeTypeSettings').ports.fabricTcpGatewayPort]",
+                        "httpGatewayEndpointPort": "[variables('nodeTypeSettings').ports.fabricHttpGatewayPort]",
+                        "applicationPorts": {
+                            "startPort": "[variables('nodeTypeSettings').ports.applicationStartPort]",
+                            "endPort": "[variables('nodeTypeSettings').ports.applicationEndPort]"
+                        },
+                        "ephemeralPorts": {
+                            "startPort": "[variables('nodeTypeSettings').ports.ephemeralStartPort]",
+                            "endPort": "[variables('nodeTypeSettings').ports.ephemeralEndPort]"
+                        },
+                        "isPrimary": false,
+                        "reverseProxyEndpointPort": "[variables('nodeTypeSettings').ports.reverseProxyEndpointPort]",
+                        "durabilityLevel": "[parameters('vmssSettings')[2].durabilityTier]"
+                    }
+                ],
+                "upgradeMode": "Manual",
+                "addonFeatures": [
+                    "RepairManager",
+                    "DnsService",
+                    "BackupRestoreService",
+                    "ResourceMonitorService"
+                ]
+            }
+        },
+        {
+            "type": "Microsoft.Compute/virtualMachineScaleSets",
+            "apiVersion": "[variables('vmssApiVersion')]",
+            "name": "[parameters('vmssSettings')[2].name]",
+            "location": "[parameters('clusterLocation')]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Network/virtualNetworks', parameters('vNetSettings').name)]",
+                "[resourceId('Microsoft.Network/loadBalancers', variables('lbNames').backend)]",
+                "[resourceId('Microsoft.Storage/storageAccounts', variables('supportLogStorageAccountName'))]",
+                "[resourceId('Microsoft.Storage/storageAccounts', variables('applicationDiagnosticsStorageAccountName'))]",
+                "[resourceId('Microsoft.Insights/components', parameters('applicationInsightsName'))]",
+                "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('logAnalyticsSettings').workspaceName)]"
+            ],
+            "tags": {
+                "resourceType": "Service Fabric",
+                "clusterName": "[parameters('clusterName')]"
+            },
+            "sku": {
+                "name": "[parameters('vmssSettings')[2].sku]",
+                "tier": "Standard",
+                "capacity": "[parameters('vmssSettings')[2].vmCount]"
+            },
+            "identity": {
+                "type": "SystemAssigned"
+            },
+            "properties": {
+                "singlePlacementGroup": true,
+                "upgradePolicy": {
+                    "mode": "Automatic"
+                },
+                "virtualMachineProfile": {
+                    "osProfile": {
+                        "computerNamePrefix": "[parameters('vmssSettings')[2].name]",
+                        "adminUsername": "[parameters('adminUserName')]",
+                        "adminPassword": "[parameters('adminPassword')]",
+                        "windowsConfiguration": {
+                            "provisionVMAgent": true,
+                            "enableAutomaticUpdates": false
+                        },
+                        "secrets": [
+                            {
+                                "sourceVault": {
+                                    "id": "[resourceId(parameters('keyVaultResourceGroupName'),'Microsoft.KeyVault/vaults', parameters('keyVaultName'))]"
+                                },
+                                "vaultCertificates": [
+                                    {
+                                        "certificateUrl": "[reference(variables('certificateUri'), '2015-06-01').secretUriWithVersion]",
+                                        "certificateStore": "[parameters('certificateStoreName')]"
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    "storageProfile": {
+                        "osDisk": {
+                            "createOption": "FromImage",
+                            "caching": "ReadOnly",
+                            "managedDisk": {
+                                "storageAccountType": "[parameters('vmssSettings')[2].storageAccountType]"
+                            }
+                        },
+                        "imageReference": {
+                            "publisher": "[parameters('vmImageSettings').publisher]",
+                            "offer": "[parameters('vmImageSettings').offer]",
+                            "sku": "[parameters('vmImageSettings').sku]",
+                            "version": "[parameters('vmImageSettings').version]"
+                        }
+                    },
+                    "networkProfile": {
+                        "networkInterfaceConfigurations": [
+                            {
+                                "name": "[concat(variables('nicName'), '-2')]",
+                                "properties": {
+                                    "primary": true,
+                                    "enableAcceleratedNetworking": false,
+                                    "dnsSettings": {
+                                        "dnsServers": []
+                                    },
+                                    "ipConfigurations": [
+                                        {
+                                            "name": "[concat(variables('nicName'), '-2')]",
+                                            "properties": {
+                                                "subnet": {
+                                                    "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', parameters('vNetSettings').name, parameters('vNetSettings').subnets[2].name)]"
+                                                },
+                                                "privateIPAddressVersion": "IPv4",
+                                                "loadBalancerBackendAddressPools": [
+                                                    {
+                                                        "id": "[concat(resourceId('Microsoft.Network/loadBalancers', variables('lbNames').backend), '/backendAddressPools/LoadBalancerBEAddressPool')]"
+                                                    }
+                                                ],
+                                                "loadBalancerInboundNatPools": [
+                                                    {
+                                                        "id": "[concat(resourceId('Microsoft.Network/loadBalancers', variables('lbNames').backend), '/inboundNatPools/LoadBalancerBEAddressNatPool')]"
+                                                    }
+                                                ]
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    },
+                    "extensionProfile": {
+                        "extensions": [
+                            {
+                                "name": "[concat('ServiceFabricNodeVmExt_', parameters('vmssSettings')[2].name)]",
+                                "properties": {
+                                    "autoUpgradeMinorVersion": true,
+                                    "settings": {
+                                        "clusterEndpoint": "[reference(parameters('clusterName')).clusterEndpoint]",
+                                        "nodeTypeRef": "[parameters('vmssSettings')[2].name]",
+                                        "dataPath": "D:\\SvcFab",
+                                        "durabilityLevel": "[parameters('vmssSettings')[2].durabilityTier]",
+                                        "enableParallelJobs": true,
+                                        "nicPrefixOverride": "[parameters('vNetSettings').subnets[2].addressPrefix]",
+                                        "certificate": {
+                                            "thumbprint": "[parameters('certificateThumbprint')]",
+                                            "x509StoreName": "[parameters('certificateStoreName')]"
+                                        }
+                                    },
+                                    "protectedSettings": {
+                                        "StorageAccountKey1": "[listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('supportLogStorageAccountName')),'2015-05-01-preview').key1]",
+                                        "StorageAccountKey2": "[listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('supportLogStorageAccountName')),'2015-05-01-preview').key2]"
+                                    },
+                                    "publisher": "Microsoft.Azure.ServiceFabric",
+                                    "type": "ServiceFabricNode",
+                                    "typeHandlerVersion": "1.0"
+                                }
+                            },
+                            {
+                                "name": "[concat('OMSVmExt_', parameters('vmssSettings')[2].name)]",
+                                "properties": {
+                                    "publisher": "Microsoft.EnterpriseCloud.Monitoring",
+                                    "type": "MicrosoftMonitoringAgent",
+                                    "typeHandlerVersion": "1.0",
+                                    "autoUpgradeMinorVersion": true,
+                                    "settings": {
+                                        "workspaceId": "[reference(resourceId('Microsoft.OperationalInsights/workspaces', parameters('logAnalyticsSettings').workspaceName), '2015-11-01-preview').customerId]"
+                                    },
+                                    "protectedSettings": {
+                                        "workspaceKey": "[listKeys(resourceId('Microsoft.OperationalInsights/workspaces', parameters('logAnalyticsSettings').workspaceName),'2015-11-01-preview').primarySharedKey]"
+                                    }
+                                }
+                            },
+                            {
+                                "name": "[concat('VMDiagnosticsVmExt_', parameters('vmssSettings')[2].name)]",
+                                "properties": {
+                                    "publisher": "Microsoft.Azure.Diagnostics",
+                                    "type": "IaaSDiagnostics",
+                                    "typeHandlerVersion": "1.5",
+                                    "autoUpgradeMinorVersion": true,
+                                    "protectedSettings": {
+                                        "storageAccountName": "[variables('applicationDiagnosticsStorageAccountName')]",
+                                        "storageAccountKey": "[listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('applicationDiagnosticsStorageAccountName')), variables('storageAccountApiVersion')).keys[0].value]",
+                                        "storageAccountEndPoint": "https://core.windows.net/"
+                                    },
+                                    "settings": {
+                                        "WadCfg": {
+                                            "DiagnosticMonitorConfiguration": {
+                                                "overallQuotaInMB": "50000",
+                                                "sinks": "applicationInsights",
+                                                "EtwProviders": {
+                                                    "EtwEventSourceProviderConfiguration": [
+                                                        {
+                                                            "provider": "Microsoft-ServiceFabric-Actors",
+                                                            "scheduledTransferKeywordFilter": "1",
+                                                            "scheduledTransferPeriod": "PT5M",
+                                                            "DefaultEvents": {
+                                                                "eventDestination": "ServiceFabricReliableActorEventTable"
+                                                            }
+                                                        },
+                                                        {
+                                                            "provider": "Microsoft-ServiceFabric-Services",
+                                                            "scheduledTransferPeriod": "PT5M",
+                                                            "DefaultEvents": {
+                                                                "eventDestination": "ServiceFabricReliableServiceEventTable"
+                                                            }
+                                                        }
+                                                    ],
+                                                    "EtwManifestProviderConfiguration": [
+                                                        {
+                                                            "provider": "cbd93bc2-71e5-4566-b3a7-595d8eeca6e8",
+                                                            "scheduledTransferLogLevelFilter": "Information",
+                                                            "scheduledTransferKeywordFilter": "4611686018427387904",
+                                                            "scheduledTransferPeriod": "PT5M",
+                                                            "DefaultEvents": {
+                                                                "eventDestination": "ServiceFabricSystemEventTable"
+                                                            }
+                                                        },
+                                                        {
+                                                            "provider": "cbd93bc2-71e5-4566-b3a7-595d8eeca6e8",
+                                                            "scheduledTransferLogLevelFilter": "Information",
+                                                            "scheduledTransferKeywordFilter": "4611686018427387928",
+                                                            "scheduledTransferPeriod": "PT5M",
+                                                            "DefaultEvents": {
+                                                                "eventDestination": "ServiceFabricSystemEventTable"
+                                                            }
+                                                        }
+                                                    ]
+                                                }
+                                            },
+                                            "SinksConfig": {
+                                                "Sink": [
+                                                    {
+                                                        "name": "applicationInsights",
+                                                        "ApplicationInsights": "[reference(resourceId('Microsoft.Insights/components', parameters('applicationInsightsName')), variables('appInsightsApiVersion')).InstrumentationKey]"
+                                                    }
+                                                ]
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                },
+                "overprovision": false
+            }
+        },
+        {
+            "type": "Microsoft.Compute/virtualMachineScaleSets",
+            "apiVersion": "[variables('vmssApiVersion')]",
+            "name": "[parameters('vmssSettings')[1].name]",
+            "location": "[parameters('clusterLocation')]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Network/virtualNetworks', parameters('vnetSettings').name)]",
+                "[resourceId('Microsoft.Network/loadBalancers', variables('lbNames').frontend)]",
+                "[resourceId('Microsoft.Storage/storageAccounts', variables('supportLogStorageAccountName'))]",
+                "[resourceId('Microsoft.Storage/storageAccounts', variables('applicationDiagnosticsStorageAccountName'))]",
+                "[resourceId('Microsoft.Insights/components', parameters('applicationInsightsName'))]",
+                "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('logAnalyticsSettings').workspaceName)]"
+            ],
+            "tags": {
+                "resourceType": "Service Fabric",
+                "clusterName": "[parameters('clusterName')]"
+            },
+            "sku": {
+                "name": "[parameters('vmssSettings')[1].sku]",
+                "tier": "Standard",
+                "capacity": "[parameters('vmssSettings')[1].vmCount]"
+            },
+            "identity": {
+                "type": "SystemAssigned"
+            },
+            "properties": {
+                "singlePlacementGroup": true,
+                "upgradePolicy": {
+                    "mode": "Automatic"
+                },
+                "virtualMachineProfile": {
+                    "osProfile": {
+                        "computerNamePrefix": "[parameters('vmssSettings')[1].name]",
+                        "adminUsername": "[parameters('adminUserName')]",
+                        "adminPassword": "[parameters('adminPassword')]",
+                        "windowsConfiguration": {
+                            "provisionVMAgent": true,
+                            "enableAutomaticUpdates": false
+                        },
+                        "secrets": [
+                            {
+                                "sourceVault": {
+                                    "id": "[resourceId(parameters('keyVaultResourceGroupName'),'Microsoft.KeyVault/vaults', parameters('keyVaultName'))]"
+                                },
+                                "vaultCertificates": [
+                                    {
+                                        "certificateUrl": "[reference(variables('certificateUri'), '2015-06-01').secretUriWithVersion]",
+                                        "certificateStore": "[parameters('certificateStoreName')]"
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    "storageProfile": {
+                        "osDisk": {
+                            "createOption": "FromImage",
+                            "caching": "ReadOnly",
+                            "managedDisk": {
+                                "storageAccountType": "[parameters('vmssSettings')[1].storageAccountType]"
+                            }
+                        },
+                        "imageReference": {
+                            "publisher": "[parameters('vmImageSettings').publisher]",
+                            "offer": "[parameters('vmImageSettings').offer]",
+                            "sku": "[parameters('vmImageSettings').sku]",
+                            "version": "[parameters('vmImageSettings').version]"
+                        }
+                    },
+                    "networkProfile": {
+                        "networkInterfaceConfigurations": [
+                            {
+                                "name": "[concat(variables('nicName'), '-1')]",
+                                "properties": {
+                                    "primary": true,
+                                    "enableAcceleratedNetworking": false,
+                                    "dnsSettings": {
+                                        "dnsServers": []
+                                    },
+                                    "ipConfigurations": [
+                                        {
+                                            "name": "[concat(variables('nicName'), '-1')]",
+                                            "properties": {
+                                                "subnet": {
+                                                    "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', parameters('vnetSettings').name, parameters('vnetSettings').subnets[1].name)]"
+                                                },
+                                                "privateIPAddressVersion": "IPv4",
+                                                "loadBalancerBackendAddressPools": [
+                                                    {
+                                                        "id": "[concat(resourceId('Microsoft.Network/loadBalancers', variables('lbNames').frontend), '/backendAddressPools/LoadBalancerBEAddressPool')]"
+                                                    }
+                                                ],
+                                                "loadBalancerInboundNatPools": [
+                                                    {
+                                                        "id": "[concat(resourceId('Microsoft.Network/loadBalancers', variables('lbNames').frontend), '/inboundNatPools/LoadBalancerBEAddressNatPool')]"
+                                                    }
+                                                ]
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    },
+                    "extensionProfile": {
+                        "extensions": [
+                            {
+                                "name": "[concat('ServiceFabricNodeVmExt_', parameters('vmssSettings')[1].name)]",
+                                "properties": {
+                                    "autoUpgradeMinorVersion": true,
+                                    "publisher": "Microsoft.Azure.ServiceFabric",
+                                    "type": "ServiceFabricNode",
+                                    "typeHandlerVersion": "1.0",
+                                    "protectedSettings": {
+                                        "StorageAccountKey1": "[listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('supportLogStorageAccountName')), '2015-05-01-preview').key1]",
+                                        "StorageAccountKey2": "[listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('supportLogStorageAccountName')), '2015-05-01-preview').key2]"
+                                    },
+                                    "settings": {
+                                        "clusterEndpoint": "[reference(parameters('clusterName')).clusterEndpoint]",
+                                        "nodeTypeRef": "[parameters('vmssSettings')[1].name]",
+                                        "dataPath": "D:\\SvcFab",
+                                        "durabilityLevel": "[parameters('vmssSettings')[1].durabilityTier]",
+                                        "enableParallelJobs": true,
+                                        "nicPrefixOverride": "[parameters('vnetSettings').subnets[1].addressPrefix]",
+                                        "certificate": {
+                                            "thumbprint": "[parameters('certificateThumbprint')]",
+                                            "x509StoreName": "[parameters('certificateStoreName')]"
+                                        }
+                                    }
+                                }
+                            },
+                            {
+                                "name": "[concat('OMSVmExt_', parameters('vmssSettings')[1].name)]",
+                                "properties": {
+                                    "publisher": "Microsoft.EnterpriseCloud.Monitoring",
+                                    "type": "MicrosoftMonitoringAgent",
+                                    "typeHandlerVersion": "1.0",
+                                    "autoUpgradeMinorVersion": true,
+                                    "settings": {
+                                        "workspaceId": "[reference(resourceId('Microsoft.OperationalInsights/workspaces', parameters('logAnalyticsSettings').workspaceName), '2015-11-01-preview').customerId]"
+                                    },
+                                    "protectedSettings": {
+                                        "workspaceKey": "[listKeys(resourceId('Microsoft.OperationalInsights/workspaces', parameters('logAnalyticsSettings').workspaceName),'2015-11-01-preview').primarySharedKey]"
+                                    }
+                                }
+                            },                            
+                            {
+                                "name": "[concat('VMDiagnosticsVmExt_', parameters('vmssSettings')[1].name)]",
+                                "properties": {
+                                    "publisher": "Microsoft.Azure.Diagnostics",
+                                    "type": "IaaSDiagnostics",
+                                    "typeHandlerVersion": "1.5",
+                                    "autoUpgradeMinorVersion": true,
+                                    "protectedSettings": {
+                                        "storageAccountName": "[variables('applicationDiagnosticsStorageAccountName')]",
+                                        "storageAccountKey": "[listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('applicationDiagnosticsStorageAccountName')), variables('storageAccountApiVersion')).keys[0].value]",
+                                        "storageAccountEndPoint": "https://core.windows.net/"
+                                    },
+                                    "settings": {
+                                        "WadCfg": {
+                                            "DiagnosticMonitorConfiguration": {
+                                                "overallQuotaInMB": "50000",
+                                                "sinks": "applicationInsights",
+                                                "EtwProviders": {
+                                                    "EtwEventSourceProviderConfiguration": [
+                                                        {
+                                                            "provider": "Microsoft-ServiceFabric-Actors",
+                                                            "scheduledTransferKeywordFilter": "1",
+                                                            "scheduledTransferPeriod": "PT5M",
+                                                            "DefaultEvents": {
+                                                                "eventDestination": "ServiceFabricReliableActorEventTable"
+                                                            }
+                                                        },
+                                                        {
+                                                            "provider": "Microsoft-ServiceFabric-Services",
+                                                            "scheduledTransferPeriod": "PT5M",
+                                                            "DefaultEvents": {
+                                                                "eventDestination": "ServiceFabricReliableServiceEventTable"
+                                                            }
+                                                        }
+                                                    ],
+                                                    "EtwManifestProviderConfiguration": [
+                                                        {
+                                                            "provider": "cbd93bc2-71e5-4566-b3a7-595d8eeca6e8",
+                                                            "scheduledTransferLogLevelFilter": "Information",
+                                                            "scheduledTransferKeywordFilter": "4611686018427387904",
+                                                            "scheduledTransferPeriod": "PT5M",
+                                                            "DefaultEvents": {
+                                                                "eventDestination": "ServiceFabricSystemEventTable"
+                                                            }
+                                                        },
+                                                        {
+                                                            "provider": "cbd93bc2-71e5-4566-b3a7-595d8eeca6e8",
+                                                            "scheduledTransferLogLevelFilter": "Information",
+                                                            "scheduledTransferKeywordFilter": "4611686018427387928",
+                                                            "scheduledTransferPeriod": "PT5M",
+                                                            "DefaultEvents": {
+                                                                "eventDestination": "ServiceFabricSystemEventTable"
+                                                            }
+                                                        }
+                                                    ]
+                                                }
+                                            },
+                                            "SinksConfig": {
+                                                "Sink": [
+                                                    {
+                                                        "name": "applicationInsights",
+                                                        "ApplicationInsights": "[reference(resourceId('Microsoft.Insights/components', parameters('applicationInsightsName')), variables('appInsightsApiVersion')).InstrumentationKey]"
+                                                    }
+                                                ]
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            {
+                                "name": "[concat('VMIaaSAntimalware_', parameters('vmssSettings')[1].name)]",
+                                "properties": {
+                                    "publisher": "Microsoft.Azure.Security",
+                                    "type": "IaaSAntimalware",
+                                    "typeHandlerVersion": "1.5",
+                                    "settings": {
+                                        "AntimalwareEnabled": "true",
+                                        "Exclusions": {
+                                            "Paths": "D:\\SvcFab;D:\\SvcFab\\Log;C:\\Program Files\\Microsoft Service Fabric",
+                                            "Processes": "Fabric.exe;FabricHost.exe;FabricInstallerService.exe;FabricSetup.exe;FabricDeployer.exe;ImageBuilder.exe;FabricGateway.exe;FabricDCA.exe;FabricFAS.exe;FabricUOS.exe;FabricRM.exe;FileStoreService.exe"
+                                        },
+                                        "RealtimeProtectionEnabled": "true",
+                                        "ScheduledScanSettings": {
+                                            "isEnabled": "true",
+                                            "scanType": "Quick",
+                                            "day": "7",
+                                            "time": "120"
+                                        }
+                                    },
+                                    "protectedSettings": null
+                                }
+                            }
+                        ]
+                    }
+                },
+                "overprovision": false
+            }
+        },
+        {
+            "type": "Microsoft.Compute/virtualMachineScaleSets",
+            "apiVersion": "[variables('vmssApiVersion')]",
+            "name": "[parameters('vmssSettings')[0].name]",
+            "location": "[parameters('clusterLocation')]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Network/virtualNetworks', parameters('vnetSettings').name)]",
+                "[resourceId('Microsoft.Network/loadBalancers', variables('lbNames').system)]",
+                "[resourceId('Microsoft.Storage/storageAccounts/', variables('supportLogStorageAccountName'))]",
+                "[resourceId('Microsoft.Storage/storageAccounts/', variables('applicationDiagnosticsStorageAccountName'))]",
+                "[resourceId('Microsoft.Insights/components', parameters('applicationInsightsName'))]",
+                "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('logAnalyticsSettings').workspaceName)]"
+            ],
+            "tags": {
+                "resourceType": "Service Fabric",
+                "clusterName": "[parameters('clusterName')]"
+            },
+            "sku": {
+                "name": "[parameters('vmssSettings')[0].sku]",
+                "tier": "Standard",
+                "capacity": "[parameters('vmssSettings')[0].vmCount]"
+            },
+            "identity": {
+                "type": "SystemAssigned"
+            },
+            "properties": {
+                "singlePlacementGroup": true,
+                "upgradePolicy": {
+                    "mode": "Automatic"
+                },
+                "virtualMachineProfile": {
+                    "osProfile": {
+                        "computerNamePrefix": "[parameters('vmssSettings')[0].name]",
+                        "adminUsername": "[parameters('adminUserName')]",
+                        "adminPassword": "[parameters('adminPassword')]",
+                        "windowsConfiguration": {
+                            "provisionVMAgent": true,
+                            "enableAutomaticUpdates": false
+                        },
+                        "secrets": [
+                            {
+                                "sourceVault": {
+                                    "id": "[resourceId(parameters('keyVaultResourceGroupName'),'Microsoft.KeyVault/vaults', parameters('keyVaultName'))]"
+                                },
+                                "vaultCertificates": [
+                                    {
+                                        "certificateUrl": "[reference(variables('certificateUri'), '2015-06-01').secretUriWithVersion]",
+                                        "certificateStore": "[parameters('certificateStoreName')]"
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    "storageProfile": {
+                        "osDisk": {
+                            "createOption": "FromImage",
+                            "caching": "ReadOnly",
+                            "managedDisk": {
+                                "storageAccountType": "[parameters('vmssSettings')[0].storageAccountType]"
+                            }
+                        },
+                        "imageReference": {
+                            "publisher": "[parameters('vmImageSettings').publisher]",
+                            "offer": "[parameters('vmImageSettings').offer]",
+                            "sku": "[parameters('vmImageSettings').sku]",
+                            "version": "[parameters('vmImageSettings').version]"
+                        }
+                    },
+                    "networkProfile": {
+                        "networkInterfaceConfigurations": [
+                            {
+                                "name": "[concat(parameters('clusterName'), '-nic-0')]",
+                                "properties": {
+                                    "primary": true,
+                                    "enableAcceleratedNetworking": false,
+                                    "dnsSettings": {
+                                        "dnsServers": []
+                                    },
+                                    "ipConfigurations": [
+                                        {
+                                            "name": "dronedeliveryasf-nic-0",
+                                            "properties": {
+                                                "subnet": {
+                                                    "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', parameters('vnetSettings').name, parameters('vnetSettings').subnets[0].name)]"
+                                                },
+                                                "privateIPAddressVersion": "IPv4",
+                                                "loadBalancerBackendAddressPools": [
+                                                    {
+                                                        "id": "[concat(resourceId('Microsoft.Network/loadBalancers', variables('lbNames').system), '/backendAddressPools/LoadBalancerBEAddressPool')]"
+                                                    }
+                                                ],
+                                                "loadBalancerInboundNatPools": [
+                                                    {
+                                                        "id": "[concat(resourceId('Microsoft.Network/loadBalancers', variables('lbNames').system), '/inboundNatPools/LoadBalancerBEAddressNatPool')]"
+                                                    }
+                                                ]
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    },
+                    "extensionProfile": {
+                        "extensions": [
+                            {
+                                "name": "[concat('ServiceFabricNodeVmExt_', parameters('vmssSettings')[0].name)]",
+                                "properties": {
+                                    "autoUpgradeMinorVersion": true,
+                                    "settings": {
+                                        "clusterEndpoint": "[reference(parameters('clusterName')).clusterEndpoint]",
+                                        "nodeTypeRef": "[parameters('vmssSettings')[0].name]",
+                                        "dataPath": "D:\\SvcFab",
+                                        "durabilityLevel": "[parameters('vmssSettings')[0].durabilityTier]",
+                                        "enableParallelJobs": true,
+                                        "nicPrefixOverride": "[parameters('vnetSettings').subnets[0].addressPrefix]",
+                                        "certificate": {
+                                            "thumbprint": "[parameters('certificateThumbprint')]",
+                                            "x509StoreName": "[parameters('certificateStoreName')]"
+                                        }
+                                    },
+                                    "protectedSettings": {
+                                        "StorageAccountKey1": "[listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('supportLogStorageAccountName')),'2015-05-01-preview').key1]",
+                                        "StorageAccountKey2": "[listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('supportLogStorageAccountName')),'2015-05-01-preview').key2]"
+                                    },
+                                    "publisher": "Microsoft.Azure.ServiceFabric",
+                                    "type": "ServiceFabricNode",
+                                    "typeHandlerVersion": "1.0"
+                                }
+                            },
+                            {
+                                "name": "[concat('OMSVmExt_', parameters('vmssSettings')[0].name)]",
+                                "properties": {
+                                    "publisher": "Microsoft.EnterpriseCloud.Monitoring",
+                                    "type": "MicrosoftMonitoringAgent",
+                                    "typeHandlerVersion": "1.0",
+                                    "autoUpgradeMinorVersion": true,
+                                    "settings": {
+                                        "workspaceId": "[reference(resourceId('Microsoft.OperationalInsights/workspaces', parameters('logAnalyticsSettings').workspaceName), '2015-11-01-preview').customerId]"
+                                    },
+                                    "protectedSettings": {
+                                        "workspaceKey": "[listKeys(resourceId('Microsoft.OperationalInsights/workspaces', parameters('logAnalyticsSettings').workspaceName),'2015-11-01-preview').primarySharedKey]"
+                                    }
+                                }
+                            },                            
+                            {
+                                "name": "[concat('VMDiagnosticsVmExt_', parameters('vmssSettings')[0].name)]",
+                                "properties": {
+                                    "publisher": "Microsoft.Azure.Diagnostics",
+                                    "type": "IaaSDiagnostics",
+                                    "typeHandlerVersion": "1.5",
+                                    "autoUpgradeMinorVersion": true,
+                                    "protectedSettings": {
+                                        "storageAccountName": "[variables('applicationDiagnosticsStorageAccountName')]",
+                                        "storageAccountKey": "[listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('applicationDiagnosticsStorageAccountName')), variables('storageAccountApiVersion')).keys[0].value]",
+                                        "storageAccountEndPoint": "https://core.windows.net/"
+                                    },
+                                    "settings": {
+                                        "WadCfg": {
+                                            "DiagnosticMonitorConfiguration": {
+                                                "overallQuotaInMB": "50000",
+                                                "sinks": "applicationInsights",
+                                                "EtwProviders": {
+                                                    "EtwEventSourceProviderConfiguration": [
+                                                        {
+                                                            "provider": "Microsoft-ServiceFabric-Actors",
+                                                            "scheduledTransferKeywordFilter": "1",
+                                                            "scheduledTransferPeriod": "PT5M",
+                                                            "DefaultEvents": {
+                                                                "eventDestination": "ServiceFabricReliableActorEventTable"
+                                                            }
+                                                        },
+                                                        {
+                                                            "provider": "Microsoft-ServiceFabric-Services",
+                                                            "scheduledTransferPeriod": "PT5M",
+                                                            "DefaultEvents": {
+                                                                "eventDestination": "ServiceFabricReliableServiceEventTable"
+                                                            }
+                                                        }
+                                                    ],
+                                                    "EtwManifestProviderConfiguration": [
+                                                        {
+                                                            "provider": "cbd93bc2-71e5-4566-b3a7-595d8eeca6e8",
+                                                            "scheduledTransferLogLevelFilter": "Information",
+                                                            "scheduledTransferKeywordFilter": "4611686018427387904",
+                                                            "scheduledTransferPeriod": "PT5M",
+                                                            "DefaultEvents": {
+                                                                "eventDestination": "ServiceFabricSystemEventTable"
+                                                            }
+                                                        },
+                                                        {
+                                                            "provider": "cbd93bc2-71e5-4566-b3a7-595d8eeca6e8",
+                                                            "scheduledTransferLogLevelFilter": "Information",
+                                                            "scheduledTransferKeywordFilter": "4611686018427387928",
+                                                            "scheduledTransferPeriod": "PT5M",
+                                                            "DefaultEvents": {
+                                                                "eventDestination": "ServiceFabricSystemEventTable"
+                                                            }
+                                                        }
+                                                    ]
+                                                }
+                                            },
+                                            "SinksConfig": {
+                                                "Sink": [
+                                                    {
+                                                        "name": "applicationInsights",
+                                                        "ApplicationInsights": "[reference(resourceId('Microsoft.Insights/components', parameters('applicationInsightsName')), variables('appInsightsApiVersion')).InstrumentationKey]"
+                                                    }
+                                                ]
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            {
+                                "name": "[concat('VMIaaSAntimalware_', parameters('vmssSettings')[0].name)]",
+                                "properties": {
+                                    "publisher": "Microsoft.Azure.Security",
+                                    "type": "IaaSAntimalware",
+                                    "typeHandlerVersion": "1.5",
+                                    "settings": {
+                                        "AntimalwareEnabled": "true",
+                                        "Exclusions": {
+                                            "Paths": "D:\\SvcFab;D:\\SvcFab\\Log;C:\\Program Files\\Microsoft Service Fabric",
+                                            "Processes": "Fabric.exe;FabricHost.exe;FabricInstallerService.exe;FabricSetup.exe;FabricDeployer.exe;ImageBuilder.exe;FabricGateway.exe;FabricDCA.exe;FabricFAS.exe;FabricUOS.exe;FabricRM.exe;FileStoreService.exe"
+                                        },
+                                        "RealtimeProtectionEnabled": "true",
+                                        "ScheduledScanSettings": {
+                                            "isEnabled": "true",
+                                            "scanType": "Quick",
+                                            "day": "7",
+                                            "time": "120"
+                                        }
+                                    },
+                                    "protectedSettings": null
+                                }
+                            }
+                        ]
+                    }
+                },
+                "overprovision": false
+            }
+        }
+    ]
+}

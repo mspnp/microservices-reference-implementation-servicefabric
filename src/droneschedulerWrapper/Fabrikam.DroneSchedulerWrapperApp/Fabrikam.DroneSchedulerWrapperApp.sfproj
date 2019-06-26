@@ -1,0 +1,60 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="14.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003" InitialTargets=";ValidateMSBuildFiles">
+  <Import Project="..\packages\Microsoft.VisualStudio.Azure.Fabric.MSBuild.1.6.7\build\Microsoft.VisualStudio.Azure.Fabric.Application.props" Condition="Exists('..\packages\Microsoft.VisualStudio.Azure.Fabric.MSBuild.1.6.7\build\Microsoft.VisualStudio.Azure.Fabric.Application.props')" />
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>dd8f3610-ecc4-451d-8dbf-6ea66e715d1d</ProjectGuid>
+    <ProjectVersion>2.4</ProjectVersion>
+    <MinToolsVersion>1.5</MinToolsVersion>
+    <SupportedMSBuildNuGetPackageVersion>1.6.7</SupportedMSBuildNuGetPackageVersion>
+    <TargetFrameworkVersion>v4.6.1</TargetFrameworkVersion>
+  </PropertyGroup>
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="ApplicationPackageRoot\ApplicationManifest.xml" />
+    <None Include="ApplicationParameters\Cloud.xml" />
+    <None Include="ApplicationParameters\Local.1Node.xml" />
+    <None Include="ApplicationParameters\Local.5Node.xml" />
+    <None Include="PublishProfiles\Cloud.xml" />
+    <None Include="PublishProfiles\Local.1Node.xml" />
+    <None Include="PublishProfiles\Local.5Node.xml" />
+    <None Include="Scripts\Deploy-FabricApplication.ps1" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="ApplicationPackageRoot\DroneSchedulerGuextExePkg\Code\ai-agent.xml">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="ApplicationPackageRoot\DroneSchedulerGuextExePkg\Code\dronescheduler-0.0.1-SNAPSHOT.jar">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="ApplicationPackageRoot\DroneSchedulerGuextExePkg\Code\jre1.8.0_211\bin\java.dll" />
+    <Content Include="ApplicationPackageRoot\DroneSchedulerGuextExePkg\Code\jre1.8.0_211\bin\java.exe" />
+    <Content Include="ApplicationPackageRoot\DroneSchedulerGuextExePkg\Config\Settings.xml" />
+    <Content Include="ApplicationPackageRoot\DroneSchedulerGuextExePkg\ServiceManifest.xml" />
+    <Content Include="packages.config" />
+    <Content Include="ApplicationPackageRoot\DroneSchedulerGuextExePkg\Code\setup-ai-agent.ps1">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="ApplicationPackageRoot\DroneSchedulerGuextExePkg\Code\setup-ai-agent.bat">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.Common.targets" />
+  <PropertyGroup>
+    <ApplicationProjectTargetsPath>$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Service Fabric Tools\Microsoft.VisualStudio.Azure.Fabric.ApplicationProject.targets</ApplicationProjectTargetsPath>
+  </PropertyGroup>
+  <Import Project="$(ApplicationProjectTargetsPath)" Condition="Exists('$(ApplicationProjectTargetsPath)')" />
+  <Import Project="..\packages\Microsoft.VisualStudio.Azure.Fabric.MSBuild.1.6.7\build\Microsoft.VisualStudio.Azure.Fabric.Application.targets" Condition="Exists('..\packages\Microsoft.VisualStudio.Azure.Fabric.MSBuild.1.6.7\build\Microsoft.VisualStudio.Azure.Fabric.Application.targets')" />
+  <Target Name="ValidateMSBuildFiles">
+    <Error Condition="!Exists('..\packages\Microsoft.VisualStudio.Azure.Fabric.MSBuild.1.6.7\build\Microsoft.VisualStudio.Azure.Fabric.Application.props')" Text="Unable to find the '..\packages\Microsoft.VisualStudio.Azure.Fabric.MSBuild.1.6.7\build\Microsoft.VisualStudio.Azure.Fabric.Application.props' file. Please restore the 'Microsoft.VisualStudio.Azure.Fabric.MSBuild' Nuget package." />
+    <Error Condition="!Exists('..\packages\Microsoft.VisualStudio.Azure.Fabric.MSBuild.1.6.7\build\Microsoft.VisualStudio.Azure.Fabric.Application.targets')" Text="Unable to find the '..\packages\Microsoft.VisualStudio.Azure.Fabric.MSBuild.1.6.7\build\Microsoft.VisualStudio.Azure.Fabric.Application.targets' file. Please restore the 'Microsoft.VisualStudio.Azure.Fabric.MSBuild' Nuget package." />
+  </Target>
+</Project>

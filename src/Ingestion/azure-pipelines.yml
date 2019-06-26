@@ -1,0 +1,175 @@
+trigger:
+  batch: 'true'
+  paths:
+     include:
+     - src/Ingestion
+     exclude:
+     - src/*
+
+  branches:
+    include:
+
+    - master
+
+    - feature/*
+
+    - bugfix/*
+
+    exclude:
+
+    - feature/experimental/*
+
+resources:
+
+- repo: self
+
+
+pool:
+
+  vmImage: vs2017-win2016
+
+  demands:
+
+  - msbuild
+
+  - visualstudio
+
+  - Cmd
+
+
+variables:
+
+  BuildPlatform: 'x64'
+  
+  Parameters.solution: '$(system.defaultWorkingDirectory)\src\Ingestion\*.sln'
+  
+  Parameters.serviceFabricProject: '$(system.defaultWorkingDirectory)\src\Ingestion\**\*.sfproj'
+
+steps:
+
+- task: NuGetToolInstaller@0
+
+  displayName: 'Use NuGet 4.4.1'
+
+  inputs:
+
+    versionSpec: 4.4.1
+
+
+
+- task: NuGetCommand@2
+
+  displayName: 'NuGet restore'
+
+  inputs:
+
+    restoreSolution: '$(Parameters.solution)'
+
+
+
+- task: VSBuild@1
+
+  displayName: 'Build solution $(system.defaultWorkingDirectory)\src\Ingestion\*.sln'
+
+  inputs:
+
+    solution: '$(Parameters.solution)'
+
+    configuration: '$(BuildConfiguration)'  
+
+    platform: '$(BuildPlatform)'  
+
+    msbuildArgs: '/p:Deterministic=true /p:PathMap=$(Agent.BuildDirectory)=C:\'
+
+
+- task: VSBuild@1
+
+  displayName: 'Build solution $(system.defaultWorkingDirectory)\src\Ingestion\**\*.sfproj'
+
+  inputs:
+
+    solution: '$(Parameters.serviceFabricProject)'
+
+    platform: '$(BuildPlatform)'
+
+    configuration: '$(BuildConfiguration)'
+
+    msbuildArgs: '/t:Package /p:PackageLocation=$(build.artifactstagingdirectory)\applicationpackage /p:Deterministic=true'
+
+
+
+- task: DotNetCoreCLI@2
+  inputs:
+    command: test
+    projects: '$(system.defaultWorkingDirectory)\src\Ingestion\**\*Tests\*.csproj'
+    arguments: '--configuration $(BuildConfiguration) --collect "Code Coverage"'
+
+- task: CopyFiles@2
+
+  displayName: 'Copy Files to: $(build.artifactstagingdirectory)\pdbs'
+
+  inputs:
+
+    SourceFolder: '$(build.artifactstagingdirectory)\applicationpackage'
+
+    Contents: '**\*.pdb'
+
+    TargetFolder: '$(build.artifactstagingdirectory)\pdbs'
+
+
+
+- task: DeleteFiles@1
+
+  displayName: 'Delete files from $(build.artifactstagingdirectory)\applicationpackage'
+
+  inputs:
+
+    SourceFolder: '$(build.artifactstagingdirectory)\applicationpackage'
+
+    Contents: '**\*.pdb'
+
+
+
+- task: ServiceFabricUpdateManifests@2
+
+  displayName: 'Update Service Fabric Manifests (Manifest versions)'
+
+  inputs:
+
+    applicationPackagePath: '$(build.artifactstagingdirectory)\applicationpackage'
+
+    versionSuffix: '.$(build.buildnumber)'
+
+    updateOnlyChanged: true
+
+    pkgArtifactName: drop
+
+
+
+- task: CopyFiles@2
+
+  displayName: 'Copy Files to: $(build.artifactstagingdirectory)\projectartifacts'
+
+  inputs:
+
+    SourceFolder: '$(system.defaultworkingdirectory)'
+
+    Contents: |
+     **\PublishProfiles\*.xml
+     **\ApplicationParameters\*.xml
+
+    TargetFolder: '$(build.artifactstagingdirectory)\projectartifacts'
+
+
+
+- task: PublishBuildArtifacts@1
+
+  displayName: 'Publish Artifact: drop'
+
+  inputs:
+
+    PathtoPublish: '$(build.artifactstagingdirectory)'
+
+
+
+
