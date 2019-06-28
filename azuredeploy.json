@@ -11,21 +11,22 @@
         },
         "clusterName": {
             "type": "string",
-            "defaultValue": "<your-servicefabric-cluster-name>",
+            "value": "<your-servicefabric-cluster-name>",
             "metadata": {
                 "description": "Name of your cluster - Between 3 and 23 characters. Letters and numbers only"
             }
         },
         "adminUserName": {
             "type": "string",
-            "defaultValue": "<your-vm-admin-name>",
+            "value": "<your-vm-admin-name>",
+            "defaultValue": "AzureVmUser",
             "metadata": {
                 "description": "Remote desktop user Id"
             }
         },
         "adminPassword": {
             "type": "securestring",
-            "defaultValue": "<your-vm-admin-password>",
+            "value": "<your-vm-admin-password>",
             "metadata": {
                 "description": "Remote desktop user password. Must be a strong password"
             }
@@ -56,21 +57,21 @@
         },
         "serviceBusSettings": {
             "type": "object",
-            "defaultValue": {
+            "value": {
                 "namespaceName": "<your-unique-servicebus-namespace>",
                 "queueName": "<delivery-requests-queue-name>"
             }
         },
         "keyVaultResourceGroupName": {
             "type": "string",
-            "defaultValue": "<your-keyvault-rg>",
+            "value": "<your-keyvault-resourcegroup-name>",
             "metadata": {
                 "description": "Resource group in which Azure keyvault is deployed"
             }
         },
         "keyVaultName": {
             "type": "string",
-            "defaultValue": "<your-keyvault-name>",
+            "value": "<your-keyvault-name>",
             "metadata": {
                 "description": "Name of the Azure keyvault that contains the certificate"
             }
@@ -84,14 +85,14 @@
         },
         "certificateName": {
             "type": "string",
-            "defaultValue": "<your-servicefabric-cluster-certificate>",
+            "value": "<your-servicefabric-cluster-certificate-name>",
             "metadata": {
                 "description": "Name of the cluster certificate in keyvault that is used to secure Service Fabric cluster"
             }
         },
         "certificateThumbprint": {
             "type": "string",
-            "defaultValue": "<your-servicefabric-cluster-certificate-thumbprint>",
+            "value": "<your-servicefabric-cluster-certificate-thumbprint>",
             "metadata": {
                 "description": "Thumbprint of the cluster certificate stored in Azure Keyvault"
             }
@@ -189,7 +190,7 @@
         "logAnalyticsSettings": {
             "type": "object",
             "defaultValue": {
-                "workspaceName": "<your-logAnalytics-workspace-name>",
+                "workspaceName": "[concat(parameters('clusterName'),'-logAnalytics-ws')]",
                 "sku": "PerGB2018"
             }
         }
