@@ -189,7 +189,7 @@
         "logAnalyticsSettings": {
             "type": "object",
             "defaultValue": {
-                "workspaceName": "<your-logAnalytics-workspace-name>",
+                "workspaceName": "[concat(parameters('clusterName'),'-logAnalytics-ws')]",
                 "sku": "PerGB2018"
             }
         }

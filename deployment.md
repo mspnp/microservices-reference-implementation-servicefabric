@@ -72,7 +72,8 @@ This reference implementation builds a Drone Delivery sample application that co
     ```
     New-AzResourceGroup -Name $appResourceGroupName -Location $location
     ```
-5. Deploy the Service Fabric cluster and related resources.
+5. Edit the template file **$appTemplate**. Replace the indicated **defaultValue** for parameters such as "<your-servicefabric-cluster-name>" with suitable values, wherever applicable.
+6. Deploy the Service Fabric cluster and related resources.
     ```
     New-AzResourceGroupDeployment -Name "sfappdep1" -ResourceGroupName $appResourceGroupName -TemplateFile $appTemplate -keyVaultName $keyVaultName -certificateName $keyVaultCertName -keyVaultResourceGroupName $keyVaultResourceGroupName -certificateThumbprint $thumbprint
     ```
