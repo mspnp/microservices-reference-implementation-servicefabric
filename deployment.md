@@ -98,7 +98,7 @@ Specify the full path to nuget.exe in this script. Alternatively, you can set yo
 
 ---
 
-    ```
+```powershell
     Get-ChildItem -Path '.\src\' -Filter *.sln -Recurse -Exclude *LoadTests.sln | ForEach-Object {
         $fullName = $_.FullName
         
@@ -110,24 +110,24 @@ Specify the full path to nuget.exe in this script. Alternatively, you can set yo
         Write-Host Running "'nuget restore' to restore packages on" $fullName ...
         & nuget.exe restore $fullName
     }
-    ```
+```
 
 3. Enable msbuild.
    - Install chocolatey to get the vswhere tool. 
 
-        ```
+```powershell
         Set-ExecutionPolicy Bypass -Scope Process -Force; iex ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))        
-        ```
+```
    
    - Install vswhere. 
     
-        ```
+```powershell
         choco install vswhere --pre
-        ```
+```
    
    - Enable Visual Studio build tools by using vswhere. You need to enable msbuild every time you start a new console session. 
 
-        ```
+```powershell
         $installationPath = vswhere.exe -prerelease -latest -property installationPath
         if ($installationPath -and (test-path "$installationPath\Common7\Tools\vsdevcmd.bat")) {
             & "${env:COMSPEC}" /s /c "`"$installationPath\Common7\Tools\vsdevcmd.bat`" -no_logo && set" | foreach-object {
@@ -135,44 +135,47 @@ Specify the full path to nuget.exe in this script. Alternatively, you can set yo
                 set-content env:\"$name" $value
             }
             }
-        ```
+```
 
 4. Find the Application Insights instrumentation key. You also need the resource group name which contains your Application Insights resource.
 
-    ```Get-AzApplicationInsights -ResourceGroupName $appResourceGroupName -Name <my-appinsights-name> | Select-Object -ExpandProperty InstrumentationKey```
+```powershell
+Get-AzApplicationInsights -ResourceGroupName $appResourceGroupName -Name <my-appinsights-name> | Select-Object -ExpandProperty InstrumentationKey
+```
 
 5. Navigate to the dronescheduler folder.
 6. Under the dronescheduler java folder, find application.properties and replace the instrumentation key:
 
-    ```java
+```java
     # Specify the instrumentation key of your Application Insights resource.
     azure.application-insights.instrumentation-key=your-application-insights-key-here
-    ```
+```
 
 7. Run ```mvn clean package``` to generate dronescheduler-0.0.1-SNAPSHOT.jar in the target folder.
-8. Copy over the dependencies required to run your guest executable and the executable jar, to the “src\droneschedulerWrapper\Fabrikam.DroneSchedulerWrapperApp\ApplicationPackageRoot\DroneSchedulerGuestExePkg\Code” folder. These dependencies include:
-    - Java runtime "jre<version>".
+8. Copy over the dependencies required to run your guest executable and the executable jar, to the “src\droneschedulerWrapper\Fabrikam.DroneSchedulerWrapperApp\ApplicationPackageRoot\DroneSchedulerGuestExePkg\Code” folder. *These dependencies include*:
+    - Java runtime "jre<version>".   
+_Note:_ Be careful, this JRE is referenced on the configuration files. Search for jre1.8.0_211 and change for the version you provided.
     - Packaged jar "dronescheduler-0.0.1-SNAPSHOT.jar".  
 
 9.  Run msbuild on all the Service Fabric projects.
    
-    ```
+```powershell
     Get-ChildItem -Path '.\src\' -Filter *.sfproj -Recurse | ForEach-Object {
             $fullName = $_.FullName
             Write-Host Running "'msbuild'" on $fullName
             & msbuild $fullName /p:Deterministic=true /t:Package /p:configuration="Release" /p:platform="x64" /p:VisualStudioVersion="15.0"
     }   
-    ```
+```
 
 10. Get the keyvault URI.
 
-    ```
+```powershell
     $azkeyVaultUri = get-azkeyvault -vaultname $keyVaultName | Select-Object -ExpandProperty VaultURI
-    ```
+```
 
 11. Edit appsettings.<ASP_NET_ENVIRONMENT>.json under your projects to make sure that they contain the required settings. You might be able to use default values set in the configuration files for a sample deployment but you must set the keyvault URI in appsettings.<ASP_NET_ENVIRONMENT>.json wherever applicable. Here's a convenient script to changes those values:
 
-    ```
+```powershell
     Get-ChildItem -Path '.\src\' -Filter appsettings*.json -Recurse | where {$_.DirectoryName -match "pkg"} | ForEach-Object {
         $fullName = $_.FullName
         
@@ -189,7 +192,7 @@ Specify the full path to nuget.exe in this script. Alternatively, you can set yo
         
         $jdata | ConvertTo-Json -Depth 10 | Tee-Object $fullName
     }
-    ```
+```
 
 ---
 **NOTE**
@@ -200,7 +203,9 @@ Following script requires Powershell 3 or above. It does not works with Powershe
 
 12. Open a Powershell prompt and navigate to the root directory of the cloned repo. Run the following script to deploy all the applications and services to the Service Fabric cluster.
 
-    ```
+To be able to connect to a secure Service Fabric Cluster via PowerShell, you need to import the certificate specified into your personal certificate store. Otherwise an Exception will be thrown. Unfortunately the Exception does not point into the right direction. You need to download the certificate with its private key (*.pfx)  from Azure Key Vault and import into the personal certificate store of the PC you are running PowerShell on.  
+
+```powershell
     $endpoint = '<my-servicefabric-cluster-endpoint>:19000'
     $thumbprint = '<certificate-thumbprint-obtained-previously>'
 
@@ -229,7 +234,7 @@ Following script requires Powershell 3 or above. It does not works with Powershe
         # Create Service Fabric application instances
         New-ServiceFabricApplication -ApplicationName $fullAppName -ApplicationTypeName $appType -ApplicationTypeVersion 1.0.0
     }
-    ```
+```
 
 ## Deploy Azure API Management 
 This reference implementation uses Azure API Management (APIM) as the API gateway (ingress).  It runs in a subnet within the same virtual network as the Service Fabric cluster. For deployment instructions, see [Integrate API Management with Service Fabric in Azure](https://docs.microsoft.com/en-us/azure/service-fabric/service-fabric-tutorial-deploy-api-management). You also need these [Azure Resource Manager templates](https://github.com/microsoft/service-fabric-scripts-and-templates/tree/master/templates/service-integration).
@@ -237,7 +242,7 @@ This reference implementation uses Azure API Management (APIM) as the API gatewa
 
 After deploying APIM, route requests to a stateless service such as the Drone Delivery service by creating a backend policy.  
 
-```
+```json
 <policies>
     <inbound>
         <base />
@@ -256,7 +261,7 @@ After deploying APIM, route requests to a stateless service such as the Drone De
 ```
 
 For a stateful service, create a policy as shown here:
-```
+```json
 <policies>
     <inbound>
         <base />
