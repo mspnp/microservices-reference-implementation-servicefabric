@@ -20,7 +20,7 @@
       "type": "string",
       "defaultValue": "my-user-pricipal-object-id",
       "metadata": {
-        "description": "Object Id of the AD user. Get using Get-AzureADUser or Get-AzureADServicePrincipal cmdlets"
+        "description": "Object Id of the Microsoft Entra user. Get using Get-AzureADUser or Get-AzureADServicePrincipal cmdlets"
       }
     },
     "keysPermissions": {
